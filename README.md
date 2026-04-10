@@ -1,5 +1,7 @@
 # Biodata Generator for C++
 
+[![Biodata Generator for C++](https://raw.githubusercontent.com/dasmig/biodata-generator/master/doc/biodata-generator.png)](https://github.com/dasmig/biodata-generator/releases)
+
 > **Requires C++23** (e.g., `-std=c++23` for GCC/Clang, `/std:c++latest` for MSVC).
 
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/dasmig/biodata-generator/master/LICENSE.MIT)
