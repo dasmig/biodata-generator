@@ -1,0 +1,33 @@
+The demographic data in the resources/ directory is derived from:
+
+1. NCD Risk Factor Collaboration (NCD-RisC)
+   (https://ncdrisc.org/)
+   via Our World in Data (https://ourworldindata.org/)
+   Height means and standard deviations by country and sex.
+   Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).
+   https://creativecommons.org/licenses/by/4.0/
+
+2. World Health Organization Global Health Observatory
+   (https://www.who.int/data/gho)
+   via Our World in Data (https://ourworldindata.org/)
+   BMI means by country and sex.
+   Used under WHO terms of use.
+
+3. Published population studies (Wikipedia compilation)
+   Blood type frequency distributions by country.
+   Source data is in the public domain.
+
+4. Katsara & Nothnagel 2019 + regional estimates
+   Eye colour frequency distributions.
+
+5. VISAGE consortium + regional estimates
+   Hair colour frequency distributions.
+
+6. WHO UV guidance + ethnic composition estimates
+   Skin type (Fitzpatrick scale) distributions.
+
+7. Papadatou-Pastou et al. 2020 meta-analysis
+   Handedness frequency distributions.
+
+You are free to share and adapt the data for any purpose, including
+commercial use, provided you give appropriate credit to the original sources.

@@ -3,6 +3,9 @@ build/
 *.o
 *.exe
 
+# Local dependencies (not vendored)
+deps/
+
 # Coverage
 coverage/
 *.profraw

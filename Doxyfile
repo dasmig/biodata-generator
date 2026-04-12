@@ -58,3 +58,7 @@ TOC_INCLUDE_HEADINGS   = 3
 GENERATE_LATEX         = NO
 GENERATE_MAN           = NO
 GENERATE_XML           = NO
+
+# --- Graphs ----------------------------------------------------------------
+
+HAVE_DOT               = NO

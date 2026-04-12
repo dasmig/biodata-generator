@@ -5,6 +5,7 @@
 > **Requires C++23** (e.g., `-std=c++23` for GCC/Clang, `/std:c++latest` for MSVC).
 
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/dasmig/biodata-generator/master/LICENSE.MIT)
+[![CI](https://github.com/dasmig/biodata-generator/actions/workflows/ci.yml/badge.svg)](https://github.com/dasmig/biodata-generator/actions/workflows/ci.yml)
 [![GitHub Releases](https://img.shields.io/github/release/dasmig/biodata-generator.svg)](https://github.com/dasmig/biodata-generator/releases)
 [![GitHub Issues](https://img.shields.io/github/issues/dasmig/biodata-generator.svg)](https://github.com/dasmig/biodata-generator/issues)
 [![C++23](https://img.shields.io/badge/standard-C%2B%2B23-blue.svg)](https://en.cppreference.com/w/cpp/23)
