@@ -118,8 +118,9 @@ class biodata
     /// @brief Human-readable summary string.
     [[nodiscard]] std::string to_string() const
     {
-        return std::format("{:.1f}cm {:.1f}kg BMI={:.1f} eyes={} "
-                           "hair={} skin={} blood={} {}",
+        return std::format("{} {} {:.1f}cm {:.1f}kg BMI={:.1f} "
+                           "eyes={} hair={} skin={} blood={} {}",
+                           country_code, sex_str(bio_sex),
                            height_cm, weight_kg, bmi,
                            eye_color_str(eyes),
                            hair_color_str(hair),
@@ -367,6 +368,8 @@ class bdg
     /// @brief Load biodata from a resource directory.
     ///
     /// Expects the directory to contain: biodata.tsv.
+    ///
+    /// Replaces any previously loaded data.
     void load(const std::filesystem::path& dir)
     {
         if (!std::filesystem::is_directory(dir))
@@ -374,6 +377,7 @@ class bdg
             return;
         }
 
+        _entries.clear();
         load_biodata_(dir / "biodata.tsv");
         rebuild_indices_();
     }
@@ -533,6 +537,9 @@ class bdg
         b.country_code = e.cca2;
 
         // 1. Sex — fixed or 50/50.
+        //    Note: when fix_sex is true the Bernoulli draw is skipped,
+        //    so the RNG sequence diverges from an unfixed call with the
+        //    same seed that happened to land on the same sex.
         if (opts.fix_sex)
         {
             b.bio_sex = opts.forced_sex;
@@ -730,6 +737,7 @@ class bdg
         {
             _cca2_order.push_back(key);
         }
+        std::ranges::sort(_cca2_order);
 
         if (!_cca2_order.empty())
         {

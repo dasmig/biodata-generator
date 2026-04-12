@@ -169,7 +169,15 @@ std::cout << dasmig::biodata::hair_color_str(b.hair) << "\n";
 std::cout << dasmig::biodata::skin_type_str(b.skin) << "\n";
 std::cout << dasmig::biodata::blood_type_str(b.blood) << "\n";
 std::cout << dasmig::biodata::handedness_str(b.hand) << "\n";
+std::cout << dasmig::biodata::sex_str(b.bio_sex) << "\n";
 ```
+
+### sex
+
+| Value | Label |
+|-------|-------|
+| `male` | "male" |
+| `female` | "female" |
 
 ### eye_color
 
@@ -290,6 +298,8 @@ Each call to `get_biodata()` runs this pipeline:
 7. **Skin Type** — `std::discrete_distribution` over 6 Fitzpatrick types.
 8. **Blood Type** — `std::discrete_distribution` over 8 ABO/Rh groups.
 9. **Handedness** — `std::bernoulli_distribution` from country-specific left-handedness rate.
+
+> **Note:** When sex is forced via parameter the Bernoulli draw in step 1 is skipped, so the internal RNG sequence diverges from an unfixed call with the same seed that happened to land on the same sex. This means `get_biodata("US", seed)` and `get_biodata("US", sex::male, seed)` produce different height/BMI values even when the unfixed call would have chosen male.
 
 ## Data Pipeline
 

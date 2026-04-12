@@ -25,9 +25,7 @@ int main()
     for (const auto* code : {"US", "BR", "JP", "NG", "DE"})
     {
         auto b = gen.get_biodata(code);
-        std::cout << code << ": " << b.to_string()
-                  << "  sex=" << dasmig::biodata::sex_str(b.bio_sex)
-                  << "\n";
+        std::cout << b.to_string() << "\n";
     }
 
     // Generate from a random country.
@@ -35,15 +33,15 @@ int main()
     for (int i = 0; i < 5; ++i)
     {
         auto b = gen.get_biodata();
-        std::cout << "  " << b.country_code << ": " << b << "\n";
+        std::cout << "  " << b << "\n";
     }
 
     // Deterministic replay.
     std::cout << "\nDeterministic replay:\n";
     auto b1 = gen.get_biodata("US", std::uint64_t{42});
     auto b2 = gen.get_biodata("US", std::uint64_t{42});
-    std::cout << "  seed 42 → " << b1.to_string() << "\n";
-    std::cout << "  seed 42 → " << b2.to_string()
+    std::cout << "  seed 42 -> " << b1.to_string() << "\n";
+    std::cout << "  seed 42 -> " << b2.to_string()
               << (b1.height_cm == b2.height_cm ? "  match" : "  mismatch")
               << "\n";
 

@@ -73,12 +73,14 @@ TEST_CASE("load(dataset::lite) loads fewer than full", "[loading][tier]")
     bool lite_ok = gen_lite.load(dasmig::dataset::lite);
     bool full_ok = gen_full.load(dasmig::dataset::full);
 
-    if (lite_ok && full_ok)
+    if (!lite_ok || !full_ok)
     {
-        REQUIRE(gen_lite.country_count() > 0);
-        REQUIRE(gen_full.country_count() > 0);
-        REQUIRE(gen_full.country_count() > gen_lite.country_count());
+        SKIP("One or both dataset tiers not found — skipping");
     }
+
+    REQUIRE(gen_lite.country_count() > 0);
+    REQUIRE(gen_full.country_count() > 0);
+    REQUIRE(gen_full.country_count() > gen_lite.country_count());
 }
 
 TEST_CASE("load(dataset) returns false for missing tier", "[loading][tier]")
@@ -170,6 +172,52 @@ TEST_CASE("get_biodata throws for unknown country", "[generation]")
 {
     auto gen = make_loaded_generator();
     REQUIRE_THROWS_AS(gen.get_biodata("ZZ"), std::invalid_argument);
+}
+
+TEST_CASE("get_biodata throws with informative message", "[generation]")
+{
+    auto gen = make_loaded_generator();
+    REQUIRE_THROWS_WITH(gen.get_biodata("ZZ"),
+                        Catch::Matchers::ContainsSubstring("ZZ"));
+}
+
+TEST_CASE("get_biodata throws for empty country code", "[generation]")
+{
+    auto gen = make_loaded_generator();
+    REQUIRE_THROWS_AS(gen.get_biodata(""), std::invalid_argument);
+}
+
+TEST_CASE("load replaces previously loaded data", "[loading]")
+{
+    dasmig::bdg gen;
+    bool lite_ok = gen.load(dasmig::dataset::lite);
+    if (!lite_ok) { SKIP("lite tier not found"); }
+    auto count_lite = gen.country_count();
+    REQUIRE(count_lite > 0);
+
+    bool full_ok = gen.load(dasmig::dataset::full);
+    if (!full_ok) { SKIP("full tier not found"); }
+    auto count_full = gen.country_count();
+
+    // Full replaces lite, not merges.
+    REQUIRE(count_full > count_lite);
+    REQUIRE(count_full < count_lite + count_lite); // not doubled
+}
+
+TEST_CASE("get_biodata(sex) picks varied countries", "[generation][sex]")
+{
+    auto gen = make_loaded_generator();
+    gen.seed(0);
+
+    std::set<std::string> countries;
+    for (int i = 0; i < 200; ++i)
+    {
+        auto b = gen.get_biodata(dasmig::sex::male);
+        countries.insert(b.country_code);
+    }
+
+    REQUIRE(countries.size() > 10);
+    gen.unseed();
 }
 
 // ---------------------------------------------------------------------------
@@ -638,6 +686,8 @@ TEST_CASE("to_string contains expected fields", "[conversion]")
     auto b = gen.get_biodata("US", std::uint64_t{42});
     auto s = b.to_string();
 
+    REQUIRE(s.find("US") != std::string::npos);
+    REQUIRE(s.find("male") != std::string::npos);
     REQUIRE(s.find("cm") != std::string::npos);
     REQUIRE(s.find("kg") != std::string::npos);
     REQUIRE(s.find("BMI=") != std::string::npos);

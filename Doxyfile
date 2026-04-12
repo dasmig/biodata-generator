@@ -4,7 +4,7 @@
 PROJECT_NAME           = "Biodata Generator"
 PROJECT_NUMBER         = 1.0.0
 PROJECT_BRIEF          = "Procedural human physical characteristics generation for C++23"
-PROJECT_LOGO           =
+PROJECT_LOGO           = doc/biodata-generator.png
 
 OUTPUT_DIRECTORY       = doc/api
 CREATE_SUBDIRS         = NO

@@ -168,6 +168,8 @@ Tested with:
 | [name-generator](https://github.com/dasmig/name-generator) | Culturally appropriate full names |
 | [nickname-generator](https://github.com/dasmig/nickname-generator) | Gamer-style nicknames |
 | [birth-generator](https://github.com/dasmig/birth-generator) | Demographically plausible birthdays |
+| [city-generator](https://github.com/dasmig/city-generator) | Weighted city selection by population |
+| [country-generator](https://github.com/dasmig/country-generator) | Weighted country selection by population |
 | [entity-generator](https://github.com/dasmig/entity-generator) | ECS-based entity generation |
 
 ## License
