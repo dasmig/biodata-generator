@@ -32,18 +32,24 @@ namespace dasmig
 {
 
 /// @brief Dataset size tier for resource loading.
+#ifndef DASMIG_DATASET_DEFINED
+#define DASMIG_DATASET_DEFINED
 enum class dataset : std::uint8_t
 {
     lite, ///< ~111 countries with best data coverage.
     full  ///< ~197 countries (gaps filled with regional defaults).
 };
+#endif
 
 /// @brief Biological sex for biodata generation.
+#ifndef DASMIG_SEX_DEFINED
+#define DASMIG_SEX_DEFINED
 enum class sex : std::uint8_t
 {
     male,
     female
 };
+#endif
 
 /// @brief Eye colour categories.
 enum class eye_color : std::uint8_t
