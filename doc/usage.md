@@ -311,13 +311,7 @@ Because each step has its own stream, forcing the sex changes nothing else: `get
 
 ## Data Pipeline
 
-The resource TSV files are built from raw data using Python scripts in `scripts/`. `research.txt` describes the sources and the method. The raw downloads (`raw_data/`) are not in the repository; the fetch scripts recreate them, and `prepare_biodata.py` rebuilds both tiers byte for byte from them.
-
-1. `fetch_all_data.py` — Downloads height, eye, hair, skin, handedness data.
-2. `parse_blood_types.py` — Parses blood type data from Wikipedia.
-3. `fetch_bmi.py` — Discovers BMI indicator IDs from OWID.
-4. `prepare_biodata.py` — Merges all sources, maps ISO codes, fills gaps with regional defaults, and outputs the final TSV files.
-5. `validate_data.py` — Sanity checks on the output TSV files.
+The resource TSV files are built from raw data using Python scripts in `scripts/`. [Data and Method](data.md) describes every column's source and method, how to rebuild the files, and what the model leaves out.
 
 ## Extending Data
 

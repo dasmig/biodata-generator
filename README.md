@@ -13,7 +13,7 @@
 [![Platform](https://img.shields.io/badge/platform-linux%20|%20windows%20|%20macos-lightgrey.svg)](https://github.com/dasmig/biodata-generator)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://dasmig.github.io/biodata-generator/)
 
-**[API Reference](https://dasmig.github.io/biodata-generator/)** · **[Usage Guide](doc/usage.md)** · **[Releases](https://github.com/dasmig/biodata-generator/releases)**
+**[API Reference](https://dasmig.github.io/biodata-generator/)** · **[Usage Guide](doc/usage.md)** · **[Data and Method](doc/data.md)** · **[Releases](https://github.com/dasmig/biodata-generator/releases)**
 
 ## Features
 
