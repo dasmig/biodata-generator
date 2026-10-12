@@ -21,6 +21,10 @@ This guide covers every feature of the biodata-generator library in detail. For 
 <li><a href="#multi-instance-support">Multi-Instance Support</a></li>
 <li><a href="#generation-pipeline">Generation Pipeline</a></li>
 <li><a href="#data-pipeline">Data Pipeline</a></li>
+<li><a href="#extending-data">Extending Data</a></li>
+<li><a href="#replay-and-json">Replay and JSON</a></li>
+<li><a href="#compiled-in-data">Compiled-in Data</a></li>
+<li><a href="#migrating-from-v1">Migrating from v1</a></li>
 <li><a href="#thread-safety">Thread Safety</a></li>
 <li><a href="#error-reference">Error Reference</a></li>
 </ul>
@@ -52,7 +56,7 @@ int main()
 
 ## Installation
 
-1. Copy `dasmig/biodatagen.hpp` and `dasmig/random.hpp` into your include path.
+1. Copy `dasmig/biodatagen.hpp`, `dasmig/core.hpp` and the `dasmig/core/` directory into your include path, keeping them side by side.
 2. Copy the `resources/` folder (containing `full/` and/or `lite/` subdirectories with `biodata.tsv`) so it is accessible at runtime.
 3. Compile with C++23 enabled: `-std=c++23`.
 
@@ -67,12 +71,14 @@ The library ships two dataset tiers:
 
 ### Auto-Probing (Singleton)
 
-The singleton (`bdg::instance()`) auto-probes these paths on first access:
+The singleton (`bdg::instance()`) loads the `lite` tier on first access (or `full` if `lite` is missing). It uses the compiled-in copy when built with `DASMIG_BIODATA_EMBED` (see Compiled-in Data), and otherwise looks for `lite/biodata.tsv` in these directories, relative to the working directory:
 
-1. `resources/lite/biodata.tsv`
-2. `resources/full/biodata.tsv`
-3. `../resources/lite/biodata.tsv`
-4. `biodata-generator/resources/lite/biodata.tsv`
+1. `resources`
+2. `../resources`
+3. `biodata-generator/resources`
+4. `../biodata-generator/resources`
+
+`load(dataset::lite)` and `load(dataset::full)` search the same way.
 
 ### Explicit Loading
 
@@ -83,9 +89,11 @@ dasmig::bdg gen;
 gen.load(dasmig::dataset::lite);
 gen.load(dasmig::dataset::full);
 
-// By explicit path:
+// By explicit path (a directory containing biodata.tsv):
 gen.load("path/to/resources/lite");
 ```
+
+Loading replaces the data and any layers loaded before. A path that is not a directory, or has no `biodata.tsv`, is ignored; a malformed file throws `dasmig::core::tsv_error` with its location.
 
 ### Checking Data
 
@@ -287,29 +295,103 @@ auto b = gen2.get_biodata("US");
 
 ## Generation Pipeline
 
-Each call to `get_biodata()` runs this pipeline:
+Each call to `get_biodata()` runs this pipeline. Every step draws from its own stream, split from the call seed with a label (`"sex"`, `"height"`, ...), using the [dasmig-core](https://github.com/dasmig/dasmig-core) distributions, so the result is identical on every platform:
 
-1. **Sex** — 50/50 Bernoulli or forced via parameter.
-2. **Height** — `std::normal_distribution` with country/sex-specific mean and SD. Clamped to ±4σ.
-3. **BMI** — `std::lognormal_distribution` parameterised from country/sex mean and global SD (4.5). Clamped to [14, 55].
-4. **Weight** — Derived: `BMI × (height_m)²`.
-5. **Eye Colour** — `std::discrete_distribution` over 3 categories.
-6. **Hair Colour** — `std::discrete_distribution` over 4 categories.
-7. **Skin Type** — `std::discrete_distribution` over 6 Fitzpatrick types.
-8. **Blood Type** — `std::discrete_distribution` over 8 ABO/Rh groups.
-9. **Handedness** — `std::bernoulli_distribution` from country-specific left-handedness rate.
+1. **Sex** — 50/50 Bernoulli, or forced via parameter.
+2. **Height** — normal with the country/sex mean and SD, clamped to ±4σ.
+3. **BMI** — log-normal with the country/sex mean and the country SD, clamped to [14, 55].
+4. **Weight** — derived: `BMI × (height_m)²`.
+5. **Eye Colour** — weighted choice over 3 categories.
+6. **Hair Colour** — weighted choice over 4 categories.
+7. **Skin Type** — weighted choice over 6 Fitzpatrick types.
+8. **Blood Type** — weighted choice over 8 ABO/Rh groups.
+9. **Handedness** — Bernoulli with the country's left-handedness rate.
 
-> **Note:** When sex is forced via parameter the Bernoulli draw in step 1 is skipped, so the internal RNG sequence diverges from an unfixed call with the same seed that happened to land on the same sex. This means `get_biodata("US", seed)` and `get_biodata("US", sex::male, seed)` produce different height/BMI values even when the unfixed call would have chosen male.
+Because each step has its own stream, forcing the sex changes nothing else: `get_biodata("US", sex::male, seed)` equals `get_biodata("US", seed)` whenever the latter is male. A country chosen at random (`get_biodata(seed)`) is drawn uniformly from the `"country"` stream.
 
 ## Data Pipeline
 
-The resource TSV files are built from raw data using Python scripts in `scripts/`:
+The resource TSV files are built from raw data using Python scripts in `scripts/`. (These scripts are not yet in the repository; until they are added, the data's provenance is described in `LICENSE_DATA.txt`.)
 
 1. `fetch_all_data.py` — Downloads height, eye, hair, skin, handedness data.
 2. `parse_blood_types.py` — Parses blood type data from Wikipedia.
 3. `fetch_bmi.py` — Discovers BMI indicator IDs from OWID.
 4. `prepare_biodata.py` — Merges all sources, maps ISO codes, fills gaps with regional defaults, and outputs the final TSV files.
 5. `validate_data.py` — Sanity checks on the output TSV files.
+
+## Extending Data
+
+The shipped data is a base layer. Files with the same columns as `biodata.tsv` can be loaded on top of it to add countries, change them or remove them, without editing the shipped file. Rows are keyed by `country_code`.
+
+```cpp
+auto& gen = dasmig::bdg::instance();
+
+// Override mode (the default): a row replaces the loaded row for its
+// country; new countries are added.
+gen.extend("mods/tall_people.tsv");
+
+// From text, for example supplied by a WebAssembly host or a game scenario.
+gen.extend_from_string(text, "scenario: drowned coast");
+
+// Remove countries: a layer needs only the key and a disabled column.
+gen.extend_from_string("country_code\tdisabled\nQQ\t1\n", "cleanup");
+
+// Add mode refuses to touch countries that are already loaded.
+gen.extend("mods/new_countries.tsv", dasmig::core::layer_mode::add);
+```
+
+- Every value in a layer is checked (numbers, positive heights and standard deviations, a percentage between 0 and 100, at least one non-zero weight per trait group) before anything changes. A bad layer throws `dasmig::core::tsv_error` with the file, line and column, and the data stays as it was.
+- `layers()` lists what is loaded: source, mode, rows added, replaced and removed, and warnings such as unknown columns.
+- `load(...)` replaces the base and drops every layer.
+
+## Replay and JSON
+
+Every result records the seed and the data it came from:
+
+```cpp
+auto b = gen.get_biodata("BR");
+b.seed();                    // the call seed
+b.signature().data;          // gen.data_hash() when it was generated
+
+// Same seed, same data: the same biodata on every compiler and platform.
+auto again = gen.get_biodata("BR", b.seed());
+
+if (b.signature().data != gen.data_hash())
+{
+    // Different layers are loaded now; the replay would differ.
+}
+```
+
+`to_json()` gives the result as JSON, the form the WebAssembly layer and the game consume:
+
+```json
+{"country":"US","sex":"male","height_cm":173.5172709253195,"weight_kg":91.22083570504105,
+ "bmi":30.297628050803606,"eyes":"blue","hair":"blond","skin":"III","blood":"O+","hand":"right",
+ "signature":{"seed":"0000000000000001","data":"076d859c658fef72"}}
+```
+
+Seeds are strings because JavaScript numbers cannot hold every 64-bit value. `to_json(writer)` writes into an existing `dasmig::core::json_writer`, for composing larger documents.
+
+## Compiled-in Data
+
+Define `DASMIG_BIODATA_EMBED` before including the header to compile the `lite` tier into the program (about 20 KB). `load(dataset::lite)` and `instance()` then use it and need no files, which is what a WebAssembly build wants. The compiled-in data has the same `data_hash()` as the file, so seeds replay the same either way.
+
+```cpp
+#define DASMIG_BIODATA_EMBED
+#include <dasmig/biodatagen.hpp>
+```
+
+`dasmig/biodatagen_data.hpp` is generated from `resources/lite` by `make embed`; CI checks it is up to date.
+
+## Migrating from v1
+
+Version 2 moves the library onto [dasmig-core](https://github.com/dasmig/dasmig-core).
+
+- **Every generated value changes.** The engine (xoshiro256\*\*) and the distributions are now the core's own, so a seed gives the same result on every compiler, standard library and CPU, which `std::` distributions could not promise. Seeds saved with v1 do not reproduce their v1 results. The distributions themselves are unchanged (checked against v1 over 20,000 draws per scenario).
+- **Forcing the sex no longer shifts the other draws.** Each trait draws from its own stream split from the call seed, so `get_biodata("US", sex::male, s)` equals `get_biodata("US", s)` whenever the latter is male.
+- **Files:** replace `random.hpp` with `core.hpp` and the `core/` directory (see Installation).
+- **Errors:** a malformed `biodata.tsv` now throws `dasmig::core::tsv_error` instead of skipping rows silently. A missing directory is still ignored by `load(path)`.
+- **New:** `extend()`, `extend_from_string()`, `layers()`, `data_hash()`, `biodata::signature()`, `biodata::to_json()`, `DASMIG_BIODATA_EMBED`.
 
 ## Thread Safety
 
@@ -323,3 +405,4 @@ The singleton (`bdg::instance()`) returns a shared instance — wrap calls in a 
 |-----------|------|
 | `std::runtime_error("No biodata loaded. Call load() first.")` | Any generation call before `load()` |
 | `std::invalid_argument("Unknown country code: XX")` | Unknown ISO alpha-2 code |
+| `dasmig::core::tsv_error` | A malformed `biodata.tsv` or layer (message gives file, line and column); the data is unchanged |

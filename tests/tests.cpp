@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <format>
 #include <set>
 #include <sstream>
 #include <string>
@@ -83,6 +84,7 @@ TEST_CASE("load(dataset::lite) loads fewer than full", "[loading][tier]")
     REQUIRE(gen_full.country_count() > gen_lite.country_count());
 }
 
+#ifndef DASMIG_BIODATA_EMBED // compiled-in data is never missing
 TEST_CASE("load(dataset) returns false for missing tier", "[loading][tier]")
 {
     dasmig::bdg gen;
@@ -98,6 +100,7 @@ TEST_CASE("load(dataset) returns false for missing tier", "[loading][tier]")
     std::filesystem::current_path(old_cwd);
     std::filesystem::remove_all(tmp);
 }
+#endif
 
 // ---------------------------------------------------------------------------
 // Generation — basic
@@ -696,3 +699,182 @@ TEST_CASE("to_string contains expected fields", "[conversion]")
     REQUIRE(s.find("skin=") != std::string::npos);
     REQUIRE(s.find("blood=") != std::string::npos);
 }
+
+// ---------------------------------------------------------------------------
+// Known answers (rule 2): the same seed and data give these exact results on
+// every compiler and platform. A change here is a change of output and needs
+// a major version.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("known answers for fixed seeds", "[kat]")
+{
+    dasmig::bdg gen;
+    gen.load(std::filesystem::path{"resources/lite"});
+    if (!gen.has_data()) gen.load(std::filesystem::path{"../resources/lite"});
+    REQUIRE(gen.has_data());
+    REQUIRE(gen.data_hash() == 0x076d859c658fef72ULL);
+
+    REQUIRE(gen.get_biodata("US", std::uint64_t{1}).to_json() ==
+            R"({"country":"US","sex":"male","height_cm":173.5172709253195,"weight_kg":91.22083570504105,)"
+            R"("bmi":30.297628050803606,"eyes":"blue","hair":"blond","skin":"III","blood":"O+","hand":"right",)"
+            R"("signature":{"seed":"0000000000000001","data":"076d859c658fef72"}})");
+    REQUIRE(gen.get_biodata("JP", dasmig::sex::female, std::uint64_t{2}).to_json() ==
+            R"({"country":"JP","sex":"female","height_cm":158.17896069415235,"weight_kg":44.525357578480246,)"
+            R"("bmi":17.79549121600056,"eyes":"brown","hair":"black","skin":"III","blood":"A+","hand":"right",)"
+            R"("signature":{"seed":"0000000000000002","data":"076d859c658fef72"}})");
+    REQUIRE(gen.get_biodata(std::uint64_t{3}).to_json() ==
+            R"({"country":"JM","sex":"male","height_cm":176.8561684380176,"weight_kg":100.39633798702847,)"
+            R"("bmi":32.09796123745295,"eyes":"intermediate","hair":"black","skin":"IV","blood":"O+","hand":"right",)"
+            R"("signature":{"seed":"0000000000000003","data":"076d859c658fef72"}})");
+    REQUIRE(gen.get_biodata(dasmig::sex::male, std::uint64_t{4}).to_json() ==
+            R"({"country":"MT","sex":"male","height_cm":164.46793267482911,"weight_kg":63.551146441403866,)"
+            R"("bmi":23.49421412356942,"eyes":"brown","hair":"brown","skin":"IV","blood":"O+","hand":"left",)"
+            R"("signature":{"seed":"0000000000000004","data":"076d859c658fef72"}})");
+
+    std::uint64_t h = 0xcbf29ce484222325ULL;
+    for (std::uint64_t s = 0; s < 10000; ++s)
+    {
+        for (const char c : gen.get_biodata(s).to_json())
+        {
+            h ^= static_cast<unsigned char>(c);
+            h *= 0x100000001b3ULL;
+        }
+    }
+    REQUIRE(h == 0x7b8667dd6cf9dbdfULL);
+}
+
+// ---------------------------------------------------------------------------
+// JSON and signatures
+// ---------------------------------------------------------------------------
+
+TEST_CASE("to_json and signature", "[json]")
+{
+    auto gen = make_loaded_generator();
+    const auto b = gen.get_biodata("BR", std::uint64_t{99});
+    REQUIRE(b.signature().seed == 99);
+    REQUIRE(b.seed() == 99);
+    REQUIRE(b.signature().data == gen.data_hash());
+    const auto json = b.to_json();
+    REQUIRE(json.starts_with(R"({"country":"BR","sex":)"));
+    REQUIRE(json.find(R"("signature":{"seed":"0000000000000063")") != std::string::npos);
+
+    dasmig::core::json_writer w;
+    w.begin_array();
+    b.to_json(w);
+    w.end_array();
+    REQUIRE(w.str() == "[" + json + "]");
+}
+
+TEST_CASE("forcing the sex leaves the other draws unchanged", "[generation][sex]")
+{
+    auto gen = make_loaded_generator();
+    int compared = 0;
+    for (std::uint64_t s = 0; s < 200; ++s)
+    {
+        const auto free = gen.get_biodata("US", s);
+        const auto forced = gen.get_biodata("US", free.bio_sex, s);
+        REQUIRE(forced.to_json() == free.to_json());
+        ++compared;
+    }
+    REQUIRE(compared == 200);
+}
+
+// ---------------------------------------------------------------------------
+// Extending data (rule 8)
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+std::string row_for(const dasmig::bdg& /*unused*/, std::string_view code, double male_height)
+{
+    // A full row in the biodata.tsv format.
+    return std::format("{}\tTest\t{}\t6.5\t160\t6\t25\t25\t4.5\t10\t20\t70\t40\t40\t15\t5\t"
+                       "5\t10\t20\t30\t20\t15\t40\t30\t20\t5\t2\t1\t1\t1\t10\n",
+                       code, male_height);
+}
+
+const std::string header =
+    "country_code\tcountry_name\tmale_height_cm\tmale_height_sd\tfemale_height_cm\t"
+    "female_height_sd\tmale_bmi_mean\tfemale_bmi_mean\tbmi_sd\teye_blue\teye_intermediate\t"
+    "eye_brown\thair_black\thair_brown\thair_blond\thair_red\tskin_I\tskin_II\tskin_III\t"
+    "skin_IV\tskin_V\tskin_VI\tblood_O_pos\tblood_A_pos\tblood_B_pos\tblood_AB_pos\t"
+    "blood_O_neg\tblood_A_neg\tblood_B_neg\tblood_AB_neg\tleft_handed_pct\n";
+
+} // namespace
+
+TEST_CASE("extend overrides, adds and removes countries", "[extend]")
+{
+    auto gen = make_loaded_generator();
+    const auto base_count = gen.country_count();
+    const auto base_hash = gen.data_hash();
+    const auto before = gen.get_biodata("JP", dasmig::sex::male, std::uint64_t{7});
+
+    const auto& info = gen.extend_from_string(header + row_for(gen, "JP", 190.0) + row_for(gen, "QQ", 170.0),
+                                              "giants.tsv");
+    REQUIRE(info.replaced == 1);
+    REQUIRE(info.added == 1);
+    REQUIRE(gen.country_count() == base_count + 1);
+    REQUIRE(gen.data_hash() != base_hash);
+    REQUIRE(gen.layers().size() == 2);
+
+    const auto after = gen.get_biodata("JP", dasmig::sex::male, std::uint64_t{7});
+    REQUIRE(after.height_cm > before.height_cm + 10.0);
+    REQUIRE(after.signature().data == gen.data_hash());
+    REQUIRE(gen.get_biodata("QQ").country_code == "QQ");
+
+    gen.extend_from_string("country_code\tdisabled\nQQ\t1\n", "remove.tsv");
+    REQUIRE(gen.country_count() == base_count);
+    REQUIRE_THROWS_AS(gen.get_biodata("QQ"), std::invalid_argument);
+
+    // Reloading the base drops every layer.
+    REQUIRE(gen.load(dasmig::dataset::lite));
+    REQUIRE(gen.data_hash() == base_hash);
+    REQUIRE(gen.get_biodata("JP", dasmig::sex::male, std::uint64_t{7}).to_json() == before.to_json());
+}
+
+TEST_CASE("a bad layer is rejected and leaves the data unchanged", "[extend][errors]")
+{
+    auto gen = make_loaded_generator();
+    const auto hash = gen.data_hash();
+    const auto count = gen.country_count();
+
+    std::string bad_number = header + row_for(gen, "JP", 175.0) + row_for(gen, "KR", 175.0);
+    bad_number.replace(bad_number.rfind("175"), 3, "tall");
+    REQUIRE_THROWS_WITH(gen.extend_from_string(bad_number, "bad.tsv"),
+                        "bad.tsv:3: column 'male_height_cm': expected a number, got 'tall'");
+
+    std::string zero_eyes = header + row_for(gen, "JP", 175.0);
+    zero_eyes.replace(zero_eyes.find("\t10\t20\t70\t"), 10, "\t0\t0\t0\t");
+    REQUIRE_THROWS_AS(gen.extend_from_string(zero_eyes, "zero.tsv"), dasmig::core::tsv_error);
+
+    REQUIRE_THROWS_AS(gen.extend_from_string("country_code\tmale_height_cm\nJP\t180\n", "partial.tsv"),
+                      dasmig::core::tsv_error); // required columns missing
+    REQUIRE_THROWS_AS(gen.extend_from_string(header + row_for(gen, "JP", 175.0), "clash.tsv",
+                                             dasmig::core::layer_mode::add),
+                      dasmig::core::tsv_error); // JP already loaded
+
+    REQUIRE(gen.data_hash() == hash);
+    REQUIRE(gen.country_count() == count);
+    REQUIRE(gen.layers().size() == 1);
+}
+
+#ifdef DASMIG_BIODATA_EMBED
+TEST_CASE("compiled-in data needs no files and matches them", "[embed]")
+{
+    const auto old_cwd = std::filesystem::current_path();
+    const auto tmp = std::filesystem::temp_directory_path() / "bdg_embed_dir";
+    std::filesystem::create_directories(tmp);
+    std::filesystem::current_path(tmp);
+    dasmig::bdg gen;
+    const bool loaded = gen.load(dasmig::dataset::lite);
+    std::filesystem::current_path(old_cwd);
+    std::filesystem::remove_all(tmp);
+
+    REQUIRE(loaded);
+    REQUIRE(gen.layers().front().source == "embedded:lite/biodata.tsv");
+    REQUIRE(gen.data_hash() == 0x076d859c658fef72ULL); // same as the file
+    REQUIRE(gen.get_biodata("US", std::uint64_t{1}).to_json().find(R"("height_cm":173.5172709253195)") !=
+            std::string::npos);
+}
+#endif

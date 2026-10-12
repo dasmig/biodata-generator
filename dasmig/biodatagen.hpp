@@ -1,26 +1,29 @@
 #ifndef DASMIG_BIODATAGEN_HPP
 #define DASMIG_BIODATAGEN_HPP
 
-#include "random.hpp"
+#include "core.hpp"
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <format>
-#include <fstream>
+#include <functional>
+#include <map>
+#include <optional>
 #include <ostream>
-#include <random>
-#include <ranges>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <unordered_map>
 #include <utility>
 #include <vector>
+
+#ifdef DASMIG_BIODATA_EMBED
+#include "biodatagen_data.hpp"
+#endif
 
 /// @file biodatagen.hpp
 /// @brief Biodata generator library — procedural human physical
@@ -28,82 +31,74 @@
 /// @author Diego Dasso Migotto (diegomigotto at hotmail dot com)
 /// @see See doc/usage.md for the narrative tutorial.
 
+DASMIG_CORE_REQUIRE(0, 3);
+
 namespace dasmig
 {
 
-/// @brief Dataset size tier for resource loading.
-#ifndef DASMIG_DATASET_DEFINED
-#define DASMIG_DATASET_DEFINED
-enum class dataset : std::uint8_t
-{
-    lite, ///< ~111 countries with best data coverage.
-    full  ///< ~197 countries (gaps filled with regional defaults).
-};
-#endif
-
-/// @brief Biological sex for biodata generation.
 #ifndef DASMIG_SEX_DEFINED
 #define DASMIG_SEX_DEFINED
+/// @brief Biological sex.
 enum class sex : std::uint8_t
 {
-    male,
-    female
+    male,  ///< Male.
+    female ///< Female.
 };
 #endif
 
-/// @brief Eye colour categories.
+/// @brief Eye colour (three-category model from Katsara & Nothnagel 2019).
 enum class eye_color : std::uint8_t
 {
-    blue,
+    blue,         ///< Blue.
     intermediate, ///< Green, hazel, amber.
-    brown
+    brown         ///< Brown.
 };
 
-/// @brief Hair colour categories.
+/// @brief Natural hair colour (four-category model).
 enum class hair_color : std::uint8_t
 {
-    black,
-    brown,
-    blond,
-    red
+    black, ///< Black.
+    brown, ///< Brown.
+    blond, ///< Blond.
+    red    ///< Red.
 };
 
-/// @brief Fitzpatrick skin-type scale (I–VI).
+/// @brief Fitzpatrick skin phototype (I–VI).
 enum class skin_type : std::uint8_t
 {
-    I = 1,
-    II,
-    III,
-    IV,
-    V,
-    VI
+    I = 1, ///< Type I.
+    II,    ///< Type II.
+    III,   ///< Type III.
+    IV,    ///< Type IV.
+    V,     ///< Type V.
+    VI     ///< Type VI.
 };
 
-/// @brief ABO/Rh blood-type groups.
+/// @brief ABO/Rh blood type.
 enum class blood_type : std::uint8_t
 {
-    O_pos,
-    A_pos,
-    B_pos,
-    AB_pos,
-    O_neg,
-    A_neg,
-    B_neg,
-    AB_neg
+    O_pos,  ///< O+.
+    A_pos,  ///< A+.
+    B_pos,  ///< B+.
+    AB_pos, ///< AB+.
+    O_neg,  ///< O-.
+    A_neg,  ///< A-.
+    B_neg,  ///< B-.
+    AB_neg  ///< AB-.
 };
 
 /// @brief Handedness.
 enum class handedness : std::uint8_t
 {
-    right,
-    left
+    right, ///< Right-handed.
+    left   ///< Left-handed.
 };
 
 /// @brief Return type for biodata generation, holding all physical
 ///        characteristics.
 ///
-/// Supports implicit conversion to std::string (summary line) and
-/// streaming via operator<<.
+/// Supports implicit conversion to std::string (summary line),
+/// streaming via operator<< and JSON output via to_json().
 class biodata
 {
   public:
@@ -119,9 +114,20 @@ class biodata
     handedness hand{handedness::right};     ///< Handedness.
 
     /// @brief Retrieve the random seed used to generate this biodata.
-    [[nodiscard]] std::uint64_t seed() const { return _seed; }
+    /// @return The call seed; pass it to a seeded get_biodata() overload
+    ///         to generate the same biodata again.
+    [[nodiscard]] std::uint64_t seed() const { return _signature.seed; }
+
+    /// @brief The seed and the data this biodata was generated from.
+    /// @return The replay signature; `data` is bdg::data_hash() at the
+    ///         time of generation.
+    [[nodiscard]] const core::seed_signature& signature() const
+    {
+        return _signature;
+    }
 
     /// @brief Human-readable summary string.
+    /// @return Summary line.
     [[nodiscard]] std::string to_string() const
     {
         return std::format("{} {} {:.1f}cm {:.1f}kg BMI={:.1f} "
@@ -135,6 +141,36 @@ class biodata
                            handedness_str(hand));
     }
 
+    /// @brief Write this biodata as a JSON object.
+    /// @param w Writer positioned where a value is allowed.
+    void to_json(core::json_writer& w) const
+    {
+        w.begin_object()
+            .field("country", country_code)
+            .field("sex", sex_str(bio_sex))
+            .field("height_cm", height_cm)
+            .field("weight_kg", weight_kg)
+            .field("bmi", bmi)
+            .field("eyes", eye_color_str(eyes))
+            .field("hair", hair_color_str(hair))
+            .field("skin", skin_type_str(skin))
+            .field("blood", blood_type_str(blood))
+            .field("hand", handedness_str(hand))
+            .key("signature");
+        _signature.to_json(w);
+        w.end_object();
+    }
+
+    /// @brief This biodata as a JSON document.
+    /// @return Compact JSON, for example
+    ///   `{"country":"US","sex":"male","height_cm":176.2,...,"signature":{...}}`.
+    [[nodiscard]] std::string to_json() const
+    {
+        core::json_writer w;
+        to_json(w);
+        return w.str();
+    }
+
     /// @brief Implicit conversion to std::string.
     /// @return Summary string.
     operator std::string() const // NOLINT(hicpp-explicit-conversions)
@@ -143,6 +179,9 @@ class biodata
     }
 
     /// @brief Stream the summary to an output stream.
+    /// @param os Output stream.
+    /// @param b Biodata to stream.
+    /// @return The stream.
     friend std::ostream& operator<<(std::ostream& os, const biodata& b)
     {
         os << b.to_string();
@@ -152,6 +191,8 @@ class biodata
     // -- Enum to string helpers -------------------------------------------
 
     /// @brief Eye colour label.
+    /// @param c Colour.
+    /// @return Label.
     [[nodiscard]] static std::string_view eye_color_str(eye_color c)
     {
         switch (c)
@@ -164,6 +205,8 @@ class biodata
     }
 
     /// @brief Hair colour label.
+    /// @param c Colour.
+    /// @return Label.
     [[nodiscard]] static std::string_view hair_color_str(hair_color c)
     {
         switch (c)
@@ -177,6 +220,8 @@ class biodata
     }
 
     /// @brief Skin type label.
+    /// @param t Type.
+    /// @return Label.
     [[nodiscard]] static std::string_view skin_type_str(skin_type t)
     {
         switch (t)
@@ -192,6 +237,8 @@ class biodata
     }
 
     /// @brief Blood type label.
+    /// @param t Type.
+    /// @return Label.
     [[nodiscard]] static std::string_view blood_type_str(blood_type t)
     {
         switch (t)
@@ -209,6 +256,8 @@ class biodata
     }
 
     /// @brief Handedness label.
+    /// @param h Handedness.
+    /// @return Label.
     [[nodiscard]] static std::string_view handedness_str(handedness h)
     {
         switch (h)
@@ -220,6 +269,8 @@ class biodata
     }
 
     /// @brief Biological sex label.
+    /// @param s Sex.
+    /// @return Label.
     [[nodiscard]] static std::string_view sex_str(sex s)
     {
         switch (s)
@@ -231,7 +282,7 @@ class biodata
     }
 
   private:
-    std::uint64_t _seed{0};
+    core::seed_signature _signature;
     friend class bdg;
 };
 
@@ -239,15 +290,21 @@ class biodata
 ///        human physical characteristics using country-level
 ///        population statistics.
 ///
-/// The generation pipeline:
+/// The generation pipeline, each step drawing from its own stream split
+/// from the call seed (so forcing the sex leaves the other steps' draws
+/// unchanged):
 /// 1. Select biological sex (50/50 unless forced).
-/// 2. Sample height from a Gaussian (country/sex mean and SD).
-/// 3. Sample BMI from a log-normal distribution.
+/// 2. Sample height from a Gaussian (country/sex mean and SD), clamped
+///    to 4 SD.
+/// 3. Sample BMI from a log-normal distribution with the country/sex mean
+///    and SD, clamped to [14, 55].
 /// 4. Derive weight from height and BMI.
 /// 5. Sample eye colour, hair colour, skin type from categorical
 ///    distributions.
 /// 6. Sample blood type from ABO/Rh distribution.
 /// 7. Sample handedness from country-level left-handedness rate.
+///
+/// Output is identical on every compiler and platform (dasmig-core).
 ///
 /// Can be used as a singleton via instance() or constructed
 /// independently.
@@ -262,15 +319,17 @@ class bdg
     ///        data.
     bdg() = default;
 
-    bdg(const bdg&) = delete;
-    bdg& operator=(const bdg&) = delete;
-    bdg(bdg&&) noexcept = default;
-    bdg& operator=(bdg&&) noexcept = default;
-    ~bdg() = default;
+    bdg(const bdg&) = delete;            ///< Not copyable.
+    bdg& operator=(const bdg&) = delete; ///< Not copyable.
+    bdg(bdg&&) noexcept = default;       ///< Movable.
+    bdg& operator=(bdg&&) noexcept = default; ///< Movable.
+    ~bdg() = default;                    ///< Destructor.
 
     /// @brief Access the global singleton instance.
     ///
-    /// Auto-probes common resource paths on first access.
+    /// Loads the `lite` tier (or `full` if `lite` is missing) on first
+    /// access, from compiled-in data or an auto-probed `resources/`.
+    /// @return The singleton.
     static bdg& instance()
     {
         static bdg inst{auto_probe_tag{}};
@@ -281,21 +340,28 @@ class bdg
 
     /// @brief Generate random biodata for a specific country.
     /// @param cca2 ISO 3166-1 alpha-2 country code (e.g. "US", "BR").
+    /// @return The biodata.
     /// @throws std::runtime_error If no data has been loaded.
     /// @throws std::invalid_argument If the country code is unknown.
     [[nodiscard]] biodata get_biodata(std::string_view cca2)
     {
-        return generate_(lookup_entry_(cca2), draw_seed_(), {});
+        return generate_(lookup_entry_(cca2), draw_seed_(), std::nullopt);
     }
 
     /// @brief Generate deterministic biodata for a specific country.
+    /// @param cca2 ISO 3166-1 alpha-2 country code.
+    /// @param call_seed Seed; the same seed and data give the same biodata.
+    /// @return The biodata.
+    /// @throws std::runtime_error If no data has been loaded.
+    /// @throws std::invalid_argument If the country code is unknown.
     [[nodiscard]] biodata get_biodata(std::string_view cca2,
                                       std::uint64_t call_seed) const
     {
-        return generate_(lookup_entry_(cca2), call_seed, {});
+        return generate_(lookup_entry_(cca2), call_seed, std::nullopt);
     }
 
     /// @brief Generate random biodata from a random country.
+    /// @return The biodata.
     /// @throws std::runtime_error If no data has been loaded.
     [[nodiscard]] biodata get_biodata()
     {
@@ -303,50 +369,62 @@ class bdg
     }
 
     /// @brief Generate deterministic biodata from a random country.
+    /// @param call_seed Seed.
+    /// @return The biodata.
+    /// @throws std::runtime_error If no data has been loaded.
     [[nodiscard]] biodata get_biodata(std::uint64_t call_seed) const
     {
-        return get_biodata(pick_random_cca2_(call_seed), call_seed);
+        return generate_(random_entry_(call_seed), call_seed, std::nullopt);
     }
 
     // -- Sex-specific generation ------------------------------------------
 
     /// @brief Generate random biodata with a predetermined sex.
+    /// @param cca2 ISO 3166-1 alpha-2 country code.
+    /// @param bio_sex The sex.
+    /// @return The biodata.
     [[nodiscard]] biodata get_biodata(std::string_view cca2, sex bio_sex)
     {
-        return generate_(lookup_entry_(cca2), draw_seed_(),
-                         {.fix_sex = true, .forced_sex = bio_sex});
+        return generate_(lookup_entry_(cca2), draw_seed_(), bio_sex);
     }
 
     /// @brief Generate deterministic biodata with a predetermined sex.
+    /// @param cca2 ISO 3166-1 alpha-2 country code.
+    /// @param bio_sex The sex.
+    /// @param call_seed Seed.
+    /// @return The biodata.
     [[nodiscard]] biodata get_biodata(std::string_view cca2, sex bio_sex,
                                       std::uint64_t call_seed) const
     {
-        return generate_(lookup_entry_(cca2), call_seed,
-                         {.fix_sex = true, .forced_sex = bio_sex});
+        return generate_(lookup_entry_(cca2), call_seed, bio_sex);
     }
 
     /// @brief Generate random biodata from a random country with a
     ///        predetermined sex.
+    /// @param bio_sex The sex.
+    /// @return The biodata.
     [[nodiscard]] biodata get_biodata(sex bio_sex)
     {
-        auto seed = draw_seed_();
-        return generate_(lookup_entry_(pick_random_cca2_(seed)), seed,
-                         {.fix_sex = true, .forced_sex = bio_sex});
+        return get_biodata(bio_sex, draw_seed_());
     }
 
     /// @brief Generate deterministic biodata from a random country with
     ///        a predetermined sex.
+    /// @param bio_sex The sex.
+    /// @param call_seed Seed.
+    /// @return The biodata.
     [[nodiscard]] biodata get_biodata(sex bio_sex,
                                       std::uint64_t call_seed) const
     {
-        return get_biodata(pick_random_cca2_(call_seed), bio_sex,
-                           call_seed);
+        return generate_(random_entry_(call_seed), call_seed, bio_sex);
     }
 
     // -- Seeding ----------------------------------------------------------
 
     /// @brief Seed the internal random engine for deterministic
     ///        sequences.
+    /// @param seed_value Seed.
+    /// @return `*this`.
     bdg& seed(std::uint64_t seed_value)
     {
         _engine.seed(seed_value);
@@ -354,403 +432,366 @@ class bdg
     }
 
     /// @brief Reseed the engine with a non-deterministic source.
+    /// @return `*this`.
     bdg& unseed()
     {
-        _engine.seed(std::random_device{}());
+        _engine.unseed();
         return *this;
     }
 
     // -- Data management --------------------------------------------------
 
     /// @brief Check whether any data has been loaded.
+    /// @return True when at least one country is loaded.
     [[nodiscard]] bool has_data() const { return !_entries.empty(); }
 
     /// @brief Return the number of loaded countries.
+    /// @return The count.
     [[nodiscard]] std::size_t country_count() const
     {
         return _entries.size();
     }
 
-    /// @brief Load biodata from a resource directory.
+    /// @brief Load biodata from a resource directory, replacing all data
+    ///        and layers loaded before.
     ///
-    /// Expects the directory to contain: biodata.tsv.
+    /// Expects the directory to contain `biodata.tsv`. A path that is not
+    /// a directory, or a directory without the file, is ignored.
     ///
-    /// Replaces any previously loaded data.
+    /// @param dir Directory such as `resources/lite`.
+    /// @throws core::tsv_error If the file is malformed.
     void load(const std::filesystem::path& dir)
     {
-        if (!std::filesystem::is_directory(dir))
+        std::error_code ec;
+        const auto file = dir / data_file_;
+        if (!std::filesystem::is_directory(dir, ec) ||
+            !std::filesystem::is_regular_file(file, ec))
         {
             return;
         }
-
-        _entries.clear();
-        load_biodata_(dir / "biodata.tsv");
-        rebuild_indices_();
+        (void)extend(core::tsv_document::load(file), core::layer_mode::replace);
     }
 
-    /// @brief Load a specific dataset tier from auto-probed paths.
+    /// @brief Load a dataset tier, replacing all data and layers loaded
+    ///        before.
+    ///
+    /// Uses the compiled-in copy when the library is built with
+    /// `DASMIG_BIODATA_EMBED`, otherwise searches `resources/`,
+    /// `../resources`, `biodata-generator/resources` and
+    /// `../biodata-generator/resources`.
+    ///
+    /// @param tier The tier.
+    /// @return False when the tier was not found.
+    /// @throws core::tsv_error If the file is malformed.
     [[nodiscard]] bool load(dataset tier)
     {
-        std::string_view sub = (tier == dataset::full) ? "full" : "lite";
-        auto found = std::ranges::find_if(
-            probe_bases_, [&](std::string_view base) {
-                auto d = std::filesystem::path{base} / sub;
-                return std::filesystem::is_regular_file(
-                    d / "biodata.tsv");
-            });
-        if (found != probe_bases_.end())
-        {
-            load(std::filesystem::path{*found} / sub);
-            return true;
-        }
-        return false;
+        const std::string path = std::string{core::tier_name(tier)} + "/" + std::string{data_file_};
+        auto doc = core::load_resource(path, embedded_files_(),
+                                       core::find_resources(library_name_, path));
+        if (!doc) return false;
+        (void)extend(std::move(*doc), core::layer_mode::replace);
+        return true;
     }
+
+    /// @brief Add a data layer from a TSV file with the `biodata.tsv`
+    ///        columns.
+    ///
+    /// Rows are keyed by `country_code`. In the default override mode a
+    /// row replaces the loaded row for its country and new countries are
+    /// added; a row with `disabled` set to 1 removes its country.
+    ///
+    /// @param file The layer file.
+    /// @param mode How the layer combines with the data loaded before.
+    /// @return What the layer did (rows added, replaced, removed, warnings).
+    /// @throws core::tsv_error If the file cannot be read or a row is
+    ///         invalid; the data is then unchanged.
+    const core::layer_info& extend(const std::filesystem::path& file,
+                                   core::layer_mode mode = core::layer_mode::override)
+    {
+        return extend(core::tsv_document::load(file), mode);
+    }
+
+    /// @brief Add a data layer from TSV text (for example from a
+    ///        WebAssembly host).
+    /// @param text TSV with the `biodata.tsv` columns.
+    /// @param source Name used in errors.
+    /// @param mode How the layer combines with the data loaded before.
+    /// @return What the layer did.
+    /// @throws core::tsv_error If a row is invalid; the data is unchanged.
+    const core::layer_info& extend_from_string(std::string_view text, std::string source,
+                                               core::layer_mode mode = core::layer_mode::override)
+    {
+        return extend(core::tsv_document::parse(text, std::move(source)), mode);
+    }
+
+    /// @brief Add a data layer.
+    /// @param doc TSV with the `biodata.tsv` columns.
+    /// @param mode How the layer combines with the data loaded before.
+    /// @return What the layer did.
+    /// @throws core::tsv_error If a row is invalid; the data is unchanged.
+    const core::layer_info& extend(core::tsv_document doc,
+                                   core::layer_mode mode = core::layer_mode::override)
+    {
+        const auto& info = _table.extend(std::move(doc), mode, [](const core::tsv_row& row) {
+            (void)entry::parse(row);
+        });
+        rebuild_();
+        return info;
+    }
+
+    /// @brief The data layers loaded, in order.
+    /// @return The layer records.
+    [[nodiscard]] const std::vector<core::layer_info>& layers() const
+    {
+        return _table.layers();
+    }
+
+    /// @brief Hash of the loaded data, recorded in each result's
+    ///        signature().
+    /// @return The hash; 0 when nothing is loaded.
+    [[nodiscard]] std::uint64_t data_hash() const { return _table.data_hash(); }
 
   private:
     // -- Internal data structures -----------------------------------------
+
+    static constexpr std::string_view library_name_ = "biodata-generator";
+    static constexpr std::string_view data_file_ = "biodata.tsv";
+
+    static constexpr std::array<std::string_view, 3> eye_columns_{
+        "eye_blue", "eye_intermediate", "eye_brown"};
+    static constexpr std::array<std::string_view, 4> hair_columns_{
+        "hair_black", "hair_brown", "hair_blond", "hair_red"};
+    static constexpr std::array<std::string_view, 6> skin_columns_{
+        "skin_I", "skin_II", "skin_III", "skin_IV", "skin_V", "skin_VI"};
+    static constexpr std::array<std::string_view, 8> blood_columns_{
+        "blood_O_pos", "blood_A_pos", "blood_B_pos", "blood_AB_pos",
+        "blood_O_neg", "blood_A_neg", "blood_B_neg", "blood_AB_neg"};
+
+    static core::table_schema schema_()
+    {
+        core::table_schema s{.key = {"country_code"},
+                             .required = {"male_height_cm", "male_height_sd",
+                                          "female_height_cm", "female_height_sd",
+                                          "male_bmi_mean", "female_bmi_mean", "bmi_sd",
+                                          "left_handed_pct"},
+                             .optional = {"country_name"}};
+        for (const auto group : {std::span<const std::string_view>{eye_columns_},
+                                 std::span<const std::string_view>{hair_columns_},
+                                 std::span<const std::string_view>{skin_columns_},
+                                 std::span<const std::string_view>{blood_columns_}})
+        {
+            for (const auto column : group) s.required.emplace_back(column);
+        }
+        return s;
+    }
 
     struct entry
     {
         std::string cca2;
         std::string name;
+        double male_height_mean{0.0};
+        double male_height_sd{0.0};
+        double female_height_mean{0.0};
+        double female_height_sd{0.0};
+        double male_bmi_mean{0.0};
+        double female_bmi_mean{0.0};
+        double bmi_sd{0.0};
+        double left_handed{0.0}; // probability, from the percentage
+        core::discrete eyes{1.0};
+        core::discrete hair{1.0};
+        core::discrete skin{1.0};
+        core::discrete blood{1.0};
 
-        // Height Gaussian parameters.
-        double male_height_mean{170.0};
-        double male_height_sd{7.0};
-        double female_height_mean{157.0};
-        double female_height_sd{6.5};
+        // Parse and check a row; throws core::tsv_error located at the row.
+        static entry parse(const core::tsv_row& row)
+        {
+            entry e;
+            e.cca2 = row.get<std::string>("country_code");
+            e.name = row.get_or<std::string>("country_name", "");
+            e.male_height_mean = positive(row, "male_height_cm");
+            e.male_height_sd = positive(row, "male_height_sd");
+            e.female_height_mean = positive(row, "female_height_cm");
+            e.female_height_sd = positive(row, "female_height_sd");
+            e.male_bmi_mean = positive(row, "male_bmi_mean");
+            e.female_bmi_mean = positive(row, "female_bmi_mean");
+            e.bmi_sd = positive(row, "bmi_sd");
+            const auto pct = row.get<double>("left_handed_pct");
+            if (pct < 0.0 || pct > 100.0)
+            {
+                throw row.error("left_handed_pct", "must be between 0 and 100");
+            }
+            e.left_handed = pct / 100.0;
+            e.eyes = weights(row, eye_columns_);
+            e.hair = weights(row, hair_columns_);
+            e.skin = weights(row, skin_columns_);
+            e.blood = weights(row, blood_columns_);
+            return e;
+        }
 
-        // BMI parameters.
-        double male_bmi_mean{24.5};
-        double female_bmi_mean{25.0};
-        double bmi_sd{4.5};
+      private:
+        static double positive(const core::tsv_row& row, std::string_view column)
+        {
+            const auto v = row.get<double>(column);
+            if (!(v > 0.0)) throw row.error(column, "must be positive");
+            return v;
+        }
 
-        // Eye colour distribution (blue, intermediate, brown).
-        std::array<double, 3> eye_weights{0.0, 5.0, 95.0};
-
-        // Hair colour distribution (black, brown, blond, red).
-        std::array<double, 4> hair_weights{90.0, 8.0, 1.0, 1.0};
-
-        // Skin type distribution (I..VI).
-        std::array<double, 6> skin_weights{2.0, 8.0, 18.0, 30.0,
-                                           28.0, 14.0};
-
-        // Blood type distribution (O+ A+ B+ AB+ O- A- B- AB-).
-        std::array<double, 8> blood_weights{37.0, 28.0, 20.0, 5.0,
-                                            4.0, 3.0, 2.0, 1.0};
-
-        // Handedness.
-        double left_handed_pct{10.6};
+        static core::discrete weights(const core::tsv_row& row,
+                                      std::span<const std::string_view> columns)
+        {
+            std::vector<double> w;
+            w.reserve(columns.size());
+            for (const auto column : columns)
+            {
+                const auto v = row.get<double>(column);
+                if (v < 0.0) throw row.error(column, "weight must not be negative");
+                w.push_back(v);
+            }
+            try
+            {
+                return core::discrete{w};
+            }
+            catch (const std::invalid_argument&)
+            {
+                throw row.error(columns.front(), "the weights in this group are all zero");
+            }
+        }
     };
 
-    std::unordered_map<std::string, entry> _entries;
+    core::layered_table _table{schema_()};
+    std::vector<entry> _entries; // in table row order
+    std::map<std::string, std::size_t, std::less<>> _index;
 
-    // Ordered cca2 list for random-country selection.
-    std::vector<std::string> _cca2_order;
-    mutable std::uniform_int_distribution<std::size_t> _country_uniform;
-
-    static constexpr unsigned seed_shift_{32U};
-
-    static constexpr std::array<std::string_view, 3> probe_bases_{
-        "resources", "../resources", "biodata-generator/resources"};
-
-    std::mt19937_64 _engine{std::random_device{}()};
+    core::rng _engine{core::rng::from_entropy()};
 
     struct auto_probe_tag {};
 
     explicit bdg(auto_probe_tag /*tag*/)
     {
-        auto found = std::ranges::find_if(
-            probe_bases_, [](std::string_view p) {
-                return std::filesystem::exists(p) &&
-                       std::filesystem::is_directory(p);
-            });
-        if (found != probe_bases_.end())
-        {
-            const std::filesystem::path base{*found};
-            auto lite = base / "lite";
-            auto full = base / "full";
-            if (std::filesystem::is_regular_file(
-                    lite / "biodata.tsv"))
-            {
-                load(lite);
-            }
-            else if (std::filesystem::is_regular_file(
-                         full / "biodata.tsv"))
-            {
-                load(full);
-            }
-        }
+        if (!load(dataset::lite)) (void)load(dataset::full);
     }
 
     // -- Helpers ----------------------------------------------------------
 
-    std::uint64_t draw_seed_()
+    static std::span<const core::embedded_file> embedded_files_()
     {
-        return static_cast<std::uint64_t>(_engine());
+#ifdef DASMIG_BIODATA_EMBED
+        return embedded::biodatagen::files;
+#else
+        return {};
+#endif
     }
 
-    [[nodiscard]] const entry& lookup_entry_(
-        std::string_view cca2) const
+    std::uint64_t draw_seed_() { return _engine(); }
+
+    void rebuild_()
+    {
+        std::vector<entry> entries;
+        std::map<std::string, std::size_t, std::less<>> index;
+        entries.reserve(_table.size());
+        for (const auto& row : _table.rows())
+        {
+            entries.push_back(entry::parse(row));
+            index.emplace(entries.back().cca2, entries.size() - 1);
+        }
+        _entries = std::move(entries);
+        _index = std::move(index);
+    }
+
+    void require_data_() const
     {
         if (_entries.empty())
         {
-            throw std::runtime_error(
-                "No biodata loaded. Call load() first.");
+            throw std::runtime_error("No biodata loaded. Call load() first.");
         }
-        auto it = _entries.find(std::string{cca2});
-        if (it == _entries.end())
-        {
-            throw std::invalid_argument(
-                std::format("Unknown country code: {}", cca2));
-        }
-        return it->second;
     }
 
-    /// Pick a random country code deterministically from the seed.
-    [[nodiscard]] const std::string& pick_random_cca2_(
-        std::uint64_t call_seed) const
+    [[nodiscard]] const entry& lookup_entry_(std::string_view cca2) const
     {
-        if (_entries.empty())
+        require_data_();
+        const auto it = _index.find(cca2);
+        if (it == _index.end())
         {
-            throw std::runtime_error(
-                "No biodata loaded. Call load() first.");
+            throw std::invalid_argument(std::format("Unknown country code: {}", cca2));
         }
-        effolkronium::random_local rng;
-        rng.seed(static_cast<std::mt19937::result_type>(
-            call_seed ^ (call_seed >> seed_shift_)));
-        return _cca2_order[_country_uniform(rng.engine())]; // NOLINT
+        return _entries[it->second];
     }
 
-    // Optional constraints passed to generate_().
-    struct gen_opts_
+    // A country chosen uniformly from the call seed's "country" stream.
+    [[nodiscard]] const entry& random_entry_(std::uint64_t call_seed) const
     {
-        bool fix_sex{false};
-        sex forced_sex{sex::male};
-    };
+        require_data_();
+        auto r = core::rng{call_seed}.split("country");
+        return _entries[static_cast<std::size_t>(core::bounded(r, _entries.size()))];
+    }
 
-    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-    [[nodiscard]] biodata generate_(const entry& e,
-                                    std::uint64_t call_seed,
-                                    const gen_opts_& opts) const
+    [[nodiscard]] biodata generate_(const entry& e, std::uint64_t call_seed,
+                                    std::optional<sex> forced_sex) const
     {
-        effolkronium::random_local rng;
-        rng.seed(static_cast<std::mt19937::result_type>(
-            call_seed ^ (call_seed >> seed_shift_)));
-
+        const core::rng call{call_seed};
         biodata b;
-        b._seed = call_seed;
+        b._signature = {.seed = call_seed, .data = data_hash()};
         b.country_code = e.cca2;
 
-        // 1. Sex — fixed or 50/50.
-        //    Note: when fix_sex is true the Bernoulli draw is skipped,
-        //    so the RNG sequence diverges from an unfixed call with the
-        //    same seed that happened to land on the same sex.
-        if (opts.fix_sex)
+        // 1. Sex: fixed or 50/50.
+        if (forced_sex)
         {
-            b.bio_sex = opts.forced_sex;
+            b.bio_sex = *forced_sex;
         }
         else
         {
-            std::bernoulli_distribution sex_dist(0.5);
-            b.bio_sex = sex_dist(rng.engine()) ? sex::female
-                                               : sex::male;
+            auto r = call.split("sex");
+            b.bio_sex = core::bernoulli(r, 0.5) ? sex::female : sex::male;
+        }
+        const bool male = b.bio_sex == sex::male;
+
+        // 2. Height: Gaussian, clamped to 4 SD.
+        {
+            auto r = call.split("height");
+            const double mean = male ? e.male_height_mean : e.female_height_mean;
+            const double sd = male ? e.male_height_sd : e.female_height_sd;
+            const double spread = core::math::fenced(4.0 * sd);
+            b.height_cm = std::clamp(core::normal(r, mean, sd), mean - spread, mean + spread);
         }
 
-        // 2. Height — Gaussian from country/sex mean and SD.
-        const double h_mean = (b.bio_sex == sex::male)
-                                  ? e.male_height_mean
-                                  : e.female_height_mean;
-        const double h_sd = (b.bio_sex == sex::male)
-                                ? e.male_height_sd
-                                : e.female_height_sd;
-        std::normal_distribution<double> height_dist(h_mean, h_sd);
-        b.height_cm = std::clamp(height_dist(rng.engine()),
-                                 h_mean - 4.0 * h_sd,
-                                 h_mean + 4.0 * h_sd);
+        // 3. BMI: log-normal with the given mean and SD (right-skewed).
+        {
+            auto r = call.split("bmi");
+            const double mean = male ? e.male_bmi_mean : e.female_bmi_mean;
+            const double ratio = (e.bmi_sd * e.bmi_sd) / (mean * mean);
+            const double ln_sigma2 = core::math::log(1.0 + ratio);
+            const double ln_mu = core::math::log(mean) - core::math::fenced(0.5 * ln_sigma2);
+            b.bmi = std::clamp(core::lognormal(r, ln_mu, std::sqrt(ln_sigma2)), 14.0, 55.0);
+        }
 
-        // 3. BMI — log-normal to model right-skewed distribution.
-        const double bmi_mean = (b.bio_sex == sex::male)
-                                    ? e.male_bmi_mean
-                                    : e.female_bmi_mean;
-        const double bmi_sd = e.bmi_sd;
-        // Convert mean/SD to log-normal parameters.
-        const double bmi_var = bmi_sd * bmi_sd;
-        const double ln_sigma2 =
-            std::log1p(bmi_var / (bmi_mean * bmi_mean));
-        const double ln_mu =
-            std::log(bmi_mean) - 0.5 * ln_sigma2;
-        const double ln_sigma = std::sqrt(ln_sigma2);
-        std::lognormal_distribution<double> bmi_dist(ln_mu, ln_sigma);
-        b.bmi = std::clamp(bmi_dist(rng.engine()), 14.0, 55.0);
-
-        // 4. Weight = BMI × (height_m)².
+        // 4. Weight = BMI × (height in m)².
         const double height_m = b.height_cm / 100.0;
         b.weight_kg = b.bmi * height_m * height_m;
 
-        // 5. Eye colour — categorical.
-        std::discrete_distribution<unsigned> eye_dist(
-            e.eye_weights.begin(), e.eye_weights.end());
-        b.eyes = static_cast<eye_color>(eye_dist(rng.engine()));
+        // 5-8. Categorical traits.
+        {
+            auto r = call.split("eyes");
+            b.eyes = static_cast<eye_color>(e.eyes(r));
+        }
+        {
+            auto r = call.split("hair");
+            b.hair = static_cast<hair_color>(e.hair(r));
+        }
+        {
+            auto r = call.split("skin");
+            b.skin = static_cast<skin_type>(e.skin(r) + 1); // enum starts at 1
+        }
+        {
+            auto r = call.split("blood");
+            b.blood = static_cast<blood_type>(e.blood(r));
+        }
 
-        // 6. Hair colour — categorical.
-        std::discrete_distribution<unsigned> hair_dist(
-            e.hair_weights.begin(), e.hair_weights.end());
-        b.hair = static_cast<hair_color>(hair_dist(rng.engine()));
-
-        // 7. Skin type — categorical (Fitzpatrick I–VI).
-        std::discrete_distribution<unsigned> skin_dist(
-            e.skin_weights.begin(), e.skin_weights.end());
-        b.skin = static_cast<skin_type>(
-            skin_dist(rng.engine()) + 1); // enum starts at 1
-
-        // 8. Blood type — categorical (ABO/Rh).
-        std::discrete_distribution<unsigned> blood_dist(
-            e.blood_weights.begin(), e.blood_weights.end());
-        b.blood = static_cast<blood_type>(blood_dist(rng.engine()));
-
-        // 9. Handedness — Bernoulli.
-        std::bernoulli_distribution hand_dist(
-            e.left_handed_pct / 100.0);
-        b.hand = hand_dist(rng.engine()) ? handedness::left
-                                         : handedness::right;
-
+        // 9. Handedness.
+        {
+            auto r = call.split("hand");
+            b.hand = core::bernoulli(r, e.left_handed) ? handedness::left : handedness::right;
+        }
         return b;
-    }
-
-    // -- Loading ----------------------------------------------------------
-
-    // Locale-independent double parser via std::from_chars.
-    static double parse_double_(std::string_view str,
-                                double fallback = 0.0)
-    {
-        if (str.empty()) { return fallback; }
-        double val{};
-        auto [ptr, ec] =
-            std::from_chars(str.data(),
-                            str.data() + str.size(), val); // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        return ec == std::errc{} ? val : fallback;
-    }
-
-    static std::vector<std::string> split_tab_(std::string_view line)
-    {
-        std::vector<std::string> fields;
-        fields.reserve(32);
-        for (auto part : line | std::views::split('\t'))
-        {
-            fields.emplace_back(std::ranges::begin(part),
-                                std::ranges::end(part));
-        }
-        return fields;
-    }
-
-    void load_biodata_(const std::filesystem::path& path)
-    {
-        if (!std::filesystem::is_regular_file(path)) return;
-
-        std::ifstream file{path};
-        if (!file.is_open()) return;
-
-        std::string line;
-        if (!std::getline(file, line)) return; // skip header
-
-        // Header (31 columns):
-        // country_code country_name
-        // male_height_cm male_height_sd female_height_cm female_height_sd
-        // male_bmi_mean female_bmi_mean bmi_sd
-        // eye_blue eye_intermediate eye_brown
-        // hair_black hair_brown hair_blond hair_red
-        // skin_I skin_II skin_III skin_IV skin_V skin_VI
-        // blood_O_pos blood_A_pos blood_B_pos blood_AB_pos
-        // blood_O_neg blood_A_neg blood_B_neg blood_AB_neg
-        // left_handed_pct
-        static constexpr std::size_t min_fields{31};
-
-        while (std::getline(file, line))
-        {
-            if (line.empty()) continue;
-            if (line.back() == '\r') line.pop_back();
-
-            auto f = split_tab_(line);
-            if (f.size() < min_fields) continue;
-
-            entry e;
-            e.cca2 = std::move(f[0]);
-            e.name = std::move(f[1]);
-
-            // Height.
-            e.male_height_mean   = parse_double_(f[2], 170.0);
-            e.male_height_sd     = parse_double_(f[3], 7.0);
-            e.female_height_mean = parse_double_(f[4], 157.0);
-            e.female_height_sd   = parse_double_(f[5], 6.5);
-
-            // BMI.
-            e.male_bmi_mean   = parse_double_(f[6], 24.5);
-            e.female_bmi_mean = parse_double_(f[7], 25.0);
-            e.bmi_sd          = parse_double_(f[8], 4.5);
-
-            // Eye colour.
-            e.eye_weights = {
-                parse_double_(f[9]),   // blue
-                parse_double_(f[10]),  // intermediate
-                parse_double_(f[11])   // brown
-            };
-
-            // Hair colour.
-            e.hair_weights = {
-                parse_double_(f[12]),  // black
-                parse_double_(f[13]),  // brown
-                parse_double_(f[14]),  // blond
-                parse_double_(f[15])   // red
-            };
-
-            // Skin type (I–VI).
-            e.skin_weights = {
-                parse_double_(f[16]),  // I
-                parse_double_(f[17]),  // II
-                parse_double_(f[18]),  // III
-                parse_double_(f[19]),  // IV
-                parse_double_(f[20]),  // V
-                parse_double_(f[21])   // VI
-            };
-
-            // Blood type.
-            e.blood_weights = {
-                parse_double_(f[22]),  // O+
-                parse_double_(f[23]),  // A+
-                parse_double_(f[24]),  // B+
-                parse_double_(f[25]),  // AB+
-                parse_double_(f[26]),  // O-
-                parse_double_(f[27]),  // A-
-                parse_double_(f[28]),  // B-
-                parse_double_(f[29])   // AB-
-            };
-
-            // Handedness.
-            e.left_handed_pct = parse_double_(f[30], 10.6);
-
-            std::string key{e.cca2};
-            _entries.insert_or_assign(std::move(key), std::move(e));
-        }
-    }
-
-    void rebuild_indices_()
-    {
-        _cca2_order.clear();
-        _cca2_order.reserve(_entries.size());
-
-        for (const auto& key : _entries | std::views::keys)
-        {
-            _cca2_order.push_back(key);
-        }
-        std::ranges::sort(_cca2_order);
-
-        if (!_cca2_order.empty())
-        {
-            _country_uniform =
-                std::uniform_int_distribution<std::size_t>(
-                    0, _cca2_order.size() - 1);
-        }
     }
 };
 

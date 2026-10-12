@@ -84,5 +84,24 @@ int main()
     std::cout << "  Hand: "
               << dasmig::biodata::handedness_str(b.hand) << "\n";
 
+    // JSON with the replay signature (seed and data hash).
+    std::cout << "\nJSON:\n  " << gen.get_biodata("BR", std::uint64_t{7}).to_json() << "\n";
+
+    // Extend the data with a layer: make Brazilians much taller.
+    const auto& base = gen.layers().front();
+    std::cout << "\nBase data: " << base.source << " (" << base.rows << " rows)\n";
+    const std::string layer =
+        "country_code\tcountry_name\tmale_height_cm\tmale_height_sd\tfemale_height_cm\t"
+        "female_height_sd\tmale_bmi_mean\tfemale_bmi_mean\tbmi_sd\teye_blue\teye_intermediate\t"
+        "eye_brown\thair_black\thair_brown\thair_blond\thair_red\tskin_I\tskin_II\tskin_III\t"
+        "skin_IV\tskin_V\tskin_VI\tblood_O_pos\tblood_A_pos\tblood_B_pos\tblood_AB_pos\t"
+        "blood_O_neg\tblood_A_neg\tblood_B_neg\tblood_AB_neg\tleft_handed_pct\n"
+        "BR\tBrazil\t195\t6.5\t182\t6\t26\t26\t4.5\t10\t20\t70\t30\t45\t20\t5\t"
+        "5\t15\t30\t30\t15\t5\t40\t30\t20\t5\t2\t1\t1\t1\t10\n";
+    const auto& info = gen.extend_from_string(layer, "tall-brazil");
+    std::cout << "Layer " << info.source << ": " << info.replaced << " replaced, "
+              << info.added << " added\n";
+    std::cout << "  " << gen.get_biodata("BR", std::uint64_t{7}) << "\n";
+
     return 0;
 }

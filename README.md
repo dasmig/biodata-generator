@@ -27,13 +27,21 @@
 
 - **Deterministic Seeding**. Per-call `get_biodata(seed)` for reproducible results, generator-level `seed()` / `unseed()` for deterministic sequences, and `biodata::seed()` for replaying a previous generation.
 
+- **Identical Everywhere**. A seed gives the same biodata on every compiler, standard library and CPU (GCC, Clang, MSVC, Emscripten; x86-64 and ARM64), checked by known-answer tests.
+
+- **Extensible Data**. Load your own TSV layers on top of the shipped data to add, change or remove countries (`extend()`), checked before they are applied.
+
+- **JSON and Replay**. `to_json()` on every result, and a `signature()` recording the seed and the data it came from.
+
+- **Compiled-in Data**. Define `DASMIG_BIODATA_EMBED` to build the `lite` tier into the program, for WebAssembly and other builds without files.
+
 - **Multi-Instance Support**. Construct independent `bdg` instances with their own data and random engine.
 
 - **Typed Enumerations**. `eye_color`, `hair_color`, `skin_type`, `blood_type`, and `handedness` enums with string conversion helpers.
 
 ## Integration
 
-[`biodatagen.hpp`](https://github.com/dasmig/biodata-generator/blob/master/dasmig/biodatagen.hpp) is the single required file [released here](https://github.com/dasmig/biodata-generator/releases). You also need [`random.hpp`](https://github.com/dasmig/biodata-generator/blob/master/dasmig/random.hpp) in the same directory. Add
+[`biodatagen.hpp`](https://github.com/dasmig/biodata-generator/blob/master/dasmig/biodatagen.hpp) is the library [released here](https://github.com/dasmig/biodata-generator/releases). Keep [`core.hpp`](https://github.com/dasmig/biodata-generator/blob/master/dasmig/core.hpp) and the [`core/`](https://github.com/dasmig/biodata-generator/tree/master/dasmig/core) directory ([dasmig-core](https://github.com/dasmig/dasmig-core)) in the same directory. Add
 
 ```cpp
 #include <dasmig/biodatagen.hpp>
@@ -159,7 +167,7 @@ Tested with:
 
 | Dependency | Version | Bundled | Purpose |
 |-----------|---------|---------|---------|
-| [effolkronium/random](https://github.com/effolkronium/random) | 1.4.1 | Yes (`random.hpp`) | Thread-safe RNG wrapper |
+| [dasmig-core](https://github.com/dasmig/dasmig-core) | 0.3 | Yes (`core.hpp`, `core/`) | Platform-independent random engine and distributions, data layers, JSON |
 | [Catch2](https://github.com/catchorg/Catch2) | 3.x | Yes (amalgamated) | Unit testing |
 
 ## Related Libraries
