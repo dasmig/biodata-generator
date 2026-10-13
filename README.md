@@ -143,11 +143,14 @@ Each call to `get_biodata()` runs this pipeline:
 ## Building
 
 ```bash
-# Example
-make
+# Build example
+make all
 
-# Tests
+# Tests with file-backed data
 make test
+
+# Tests with the lite tier compiled in (DASMIG_BIODATA_EMBED), also run by CI
+make test-embed
 
 # Code coverage
 make coverage
