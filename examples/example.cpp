@@ -24,7 +24,7 @@ int main()
     // Generate biodata for specific countries.
     for (const auto* code : {"US", "BR", "JP", "NG", "DE"})
     {
-        auto b = gen.get_biodata(code);
+        auto b = gen.get_biodata({.country = code});
         std::cout << b.to_string() << "\n";
     }
 
@@ -32,14 +32,14 @@ int main()
     std::cout << "\nRandom:\n";
     for (int i = 0; i < 5; ++i)
     {
-        auto b = gen.get_biodata();
+        auto b = gen.get_biodata({});
         std::cout << "  " << b << "\n";
     }
 
     // Deterministic replay.
     std::cout << "\nDeterministic replay:\n";
-    auto b1 = gen.get_biodata("US", std::uint64_t{42});
-    auto b2 = gen.get_biodata("US", std::uint64_t{42});
+    auto b1 = gen.get_biodata({.country = "US"}, std::uint64_t{42});
+    auto b2 = gen.get_biodata({.country = "US"}, std::uint64_t{42});
     std::cout << "  seed 42 -> " << b1.to_string() << "\n";
     std::cout << "  seed 42 -> " << b2.to_string()
               << (b1.height_cm == b2.height_cm ? "  match" : "  mismatch")
@@ -49,30 +49,32 @@ int main()
     std::cout << "\nSex-specific:\n";
     for (int i = 0; i < 3; ++i)
     {
-        auto m = gen.get_biodata("US", dasmig::sex::male);
+        auto m = gen.get_biodata({.country = "US", .bio_sex = dasmig::sex::male});
         std::cout << "  Male:   " << m.height_cm << "cm "
                   << m.weight_kg << "kg\n";
     }
     for (int i = 0; i < 3; ++i)
     {
-        auto f = gen.get_biodata("US", dasmig::sex::female);
+        auto f = gen.get_biodata({.country = "US", .bio_sex = dasmig::sex::female});
         std::cout << "  Female: " << f.height_cm << "cm "
                   << f.weight_kg << "kg\n";
     }
 
-    // Seed the engine for a deterministic sequence.
-    std::cout << "\nDeterministic sequence (seed=100):\n";
-    gen.seed(100);
-    for (int i = 0; i < 3; ++i)
+    std::cout << "\nDeterministic sequence (explicit seeds 100-102):\n";
+    const dasmig::biodata_request request{.country = "JP"};
+    for (std::uint64_t seed = 100; seed < 103; ++seed)
     {
-        auto b = gen.get_biodata("JP");
+        auto b = gen.get_biodata(request, seed);
         std::cout << "  " << b << "\n";
     }
-    gen.unseed();
+
+    std::cout << "\nWith age:\n  "
+              << gen.get_biodata({.country = "BR", .bio_sex = dasmig::sex::female, .age = 67}, 42)
+              << "\n";
 
     // Enum label helpers.
     std::cout << "\nEnum labels:\n";
-    auto b = gen.get_biodata("IN");
+    auto b = gen.get_biodata({.country = "IN"});
     std::cout << "  Eyes: "
               << dasmig::biodata::eye_color_str(b.eyes) << "\n";
     std::cout << "  Hair: "
@@ -85,7 +87,7 @@ int main()
               << dasmig::biodata::handedness_str(b.hand) << "\n";
 
     // JSON with the replay signature (seed and data hash).
-    std::cout << "\nJSON:\n  " << gen.get_biodata("BR", std::uint64_t{7}).to_json() << "\n";
+    std::cout << "\nJSON:\n  " << gen.get_biodata({.country = "BR"}, std::uint64_t{7}).to_json() << "\n";
 
     // Extend the data with a layer: make Brazilians much taller.
     const auto& base = gen.layers().front();
@@ -101,7 +103,7 @@ int main()
     const auto& info = gen.extend_from_string(layer, "tall-brazil");
     std::cout << "Layer " << info.source << ": " << info.replaced << " replaced, "
               << info.added << " added\n";
-    std::cout << "  " << gen.get_biodata("BR", std::uint64_t{7}) << "\n";
+    std::cout << "  " << gen.get_biodata({.country = "BR"}, std::uint64_t{7}) << "\n";
 
     return 0;
 }
