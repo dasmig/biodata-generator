@@ -143,6 +143,29 @@ auto r = gen.get_biodata(std::uint64_t{42});
 auto rs = gen.get_biodata(dasmig::sex::female, std::uint64_t{42});
 ```
 
+### Generation with Options
+
+`biodata_options` fixes any of country, sex and age; whatever is left unset is drawn.
+
+```cpp
+// A 67-year-old from Brazil, sex drawn:
+auto b = gen.get_biodata({.country = "BR", .age = 67});
+
+// Deterministic (const) form:
+auto d = gen.get_biodata({.country = "BR", .bio_sex = dasmig::sex::female, .age = 8},
+                         std::uint64_t{42});
+```
+
+An empty `country` picks a random one. An age above 120 throws `std::invalid_argument`. Write `dasmig::biodata_options{}` rather than a bare `{}` when passing a seed, since `{}` also converts to `sex`.
+
+Age is applied after the base draws, so the same seed gives the same underlying person at every age, and with no age the output is identical to the other overloads. The curves are simplified population-level models:
+
+| Trait | Effect of age |
+|-------|---------------|
+| Height | Growth curve to adult height by 16 (girls) or 18 (boys); about 0.7% lost per decade after 50 |
+| BMI / weight | Factor on the adult mean: child dip around 5, rebound through the teens, rise to about 50, decline after 70 |
+| Hair | Turns `grey` with a probability of 0 before 25, 50% at 55 and rising after |
+
 ## Biodata Fields
 
 Every `biodata` object contains:
@@ -155,10 +178,11 @@ Every `biodata` object contains:
 | `weight_kg` | `double` | Weight in kilograms |
 | `bmi` | `double` | Body mass index (kg/m²) |
 | `eyes` | `dasmig::eye_color` | Eye colour (blue/intermediate/brown) |
-| `hair` | `dasmig::hair_color` | Hair colour (black/brown/blond/red) |
+| `hair` | `dasmig::hair_color` | Hair colour (black/brown/blond/red, grey when an age is given) |
 | `skin` | `dasmig::skin_type` | Fitzpatrick skin type (I–VI) |
 | `blood` | `dasmig::blood_type` | ABO/Rh blood type |
 | `hand` | `dasmig::handedness` | Handedness (right/left) |
+| `age` | `std::optional<std::uint8_t>` | Age in years, set only when requested (also in JSON) |
 
 Additionally:
 - `seed()` — the random seed used for this generation (for replay).
@@ -203,6 +227,7 @@ std::cout << dasmig::biodata::sex_str(b.bio_sex) << "\n";
 | `brown` | "brown" |
 | `blond` | "blond" |
 | `red` | "red" |
+| `grey` | "grey" (only generated when an age is given) |
 
 ### skin_type
 

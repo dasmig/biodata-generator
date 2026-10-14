@@ -120,6 +120,7 @@ Each call to `get_biodata()` runs this pipeline:
 7. **Skin Type** — Categorical sampling from Fitzpatrick I–VI distribution.
 8. **Blood Type** — Categorical sampling from ABO/Rh frequencies (O+, A+, B+, AB+, O−, A−, B−, AB−).
 9. **Handedness** — Bernoulli sampling from country-specific left-handedness rate.
+10. **Age** (optional, `get_biodata({.age = 40})`) — adjusts height (growth curve, shrinkage after 50), BMI (life-course curve) and hair (greying) without changing the base draws.
 
 ## Data Sources
 

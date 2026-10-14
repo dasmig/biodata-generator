@@ -878,3 +878,52 @@ TEST_CASE("compiled-in data needs no files and matches them", "[embed]")
             std::string::npos);
 }
 #endif
+
+// ---------------------------------------------------------------------------
+// Age
+// ---------------------------------------------------------------------------
+
+TEST_CASE("options without an age match the plain overloads", "[age]")
+{
+    auto gen = make_loaded_generator();
+    for (std::uint64_t s = 0; s < 100; ++s)
+    {
+        REQUIRE(gen.get_biodata({.country = "US"}, s).to_json() == gen.get_biodata("US", s).to_json());
+        REQUIRE(gen.get_biodata(dasmig::biodata_options{}, s).to_json() == gen.get_biodata(s).to_json());
+    }
+}
+
+TEST_CASE("options fix country, sex and age", "[age]")
+{
+    auto gen = make_loaded_generator();
+    const auto b = gen.get_biodata({.country = "JP", .bio_sex = dasmig::sex::female, .age = 34}, 7);
+    REQUIRE(b.country_code == "JP");
+    REQUIRE(b.bio_sex == dasmig::sex::female);
+    REQUIRE(b.age == 34);
+    REQUIRE(b.to_json().find(R"("age":34,"signature")") != std::string::npos);
+    REQUIRE_THROWS_AS(gen.get_biodata({.country = "US", .age = 121}, 1), std::invalid_argument);
+}
+
+TEST_CASE("age shapes height, BMI and hair", "[age]")
+{
+    auto gen = make_loaded_generator();
+    double child = 0, adult = 0, elder = 0, child_bmi = 0, adult_bmi = 0;
+    int grey_young = 0, grey_old = 0;
+    constexpr int n = 400;
+    for (std::uint64_t s = 0; s < n; ++s)
+    {
+        const auto c = gen.get_biodata({.country = "US", .bio_sex = dasmig::sex::male, .age = 6}, s);
+        const auto a = gen.get_biodata({.country = "US", .bio_sex = dasmig::sex::male, .age = 30}, s);
+        const auto o = gen.get_biodata({.country = "US", .bio_sex = dasmig::sex::male, .age = 85}, s);
+        child += c.height_cm; adult += a.height_cm; elder += o.height_cm;
+        child_bmi += c.bmi; adult_bmi += a.bmi;
+        REQUIRE(c.weight_kg < a.weight_kg);
+        if (a.hair == dasmig::hair_color::grey) ++grey_young;
+        if (o.hair == dasmig::hair_color::grey) ++grey_old;
+    }
+    REQUIRE(child / n < 0.75 * adult / n);
+    REQUIRE(elder / n < adult / n);
+    REQUIRE(child_bmi / n < adult_bmi / n);
+    REQUIRE(grey_old > 3 * grey_young);
+    REQUIRE(gen.get_biodata({.country = "US", .age = 10}, 1).hair != dasmig::hair_color::grey);
+}
