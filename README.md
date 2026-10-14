@@ -25,7 +25,9 @@
 
 - **Data-Driven**. Height and BMI from [NCD-RisC](https://ncdrisc.org/) via [Our World in Data](https://ourworldindata.org/), blood types from published population studies, phenotypic traits from Katsara & Nothnagel 2019, VISAGE consortium, and Papadatou-Pastou 2020.
 
-- **Deterministic Seeding**. Per-call `get_biodata(seed)` for reproducible results, generator-level `seed()` / `unseed()` for deterministic sequences, and `biodata::seed()` for replaying a previous generation.
+- **Request-First API**. All generation choices live in `biodata_request`: country, biological sex and optional age. Loading and extending data stay on the generator.
+
+- **Deterministic Seeding**. Per-call `get_biodata(request, seed)` for reproducible results, and `biodata::seed()` for replaying a previous generation with the same request and data.
 
 - **Identical Everywhere**. A seed gives the same biodata on every compiler, standard library and CPU (GCC, Clang, MSVC, Emscripten; x86-64 and ARM64), checked by known-answer tests.
 
@@ -35,7 +37,7 @@
 
 - **Compiled-in Data**. Define `DASMIG_BIODATA_EMBED` to build the `lite` tier into the program, for WebAssembly and other builds without files.
 
-- **Multi-Instance Support**. Construct independent `bdg` instances with their own data and random engine.
+- **Multi-Instance Support**. Construct independent `bdg` instances with their own data and no mutable generation defaults.
 
 - **Typed Enumerations**. `eye_color`, `hair_color`, `skin_type`, `blood_type`, and `handedness` enums with string conversion helpers.
 
@@ -56,6 +58,8 @@ Additionally you must supply the biodata generator with the [`resources`](https:
 
 ## Usage
 
+The public calls are `get_biodata(request)` and `get_biodata(request, seed)`, both `const`. A default `dasmig::biodata_request{}` selects a country uniformly, draws sex 50/50 and applies no age effects. The unseeded form takes a fresh entropy seed; the seeded form is independent of previous calls.
+
 ```cpp
 #include <dasmig/biodatagen.hpp>
 #include <iostream>
@@ -69,17 +73,20 @@ bdg::instance().load(dasmig::dataset::lite);  // ~111 countries (best coverage)
 bdg::instance().load(dasmig::dataset::full);  // ~197 countries (gap-filled)
 
 // Generate random biodata (uniform country selection).
-auto b = bdg::instance().get_biodata();
+auto b = bdg::instance().get_biodata({});
 std::cout << b << '\n';  // implicit string conversion
 
 // Generate biodata for a specific country.
-auto us = bdg::instance().get_biodata("US");
+auto us = bdg::instance().get_biodata({.country = "US"});
 std::cout << "Height: " << us.height_cm << " cm\n";
 std::cout << "Weight: " << us.weight_kg << " kg\n";
 std::cout << "BMI:    " << us.bmi << "\n";
 
 // Request a specific sex.
-auto m = bdg::instance().get_biodata("BR", dasmig::sex::male);
+auto m = bdg::instance().get_biodata({.country = "BR", .bio_sex = dasmig::sex::male});
+
+// Include age effects.
+auto older = bdg::instance().get_biodata({.country = "BR", .age = 67});
 
 // Access typed enum fields.
 std::cout << "Eyes:  " << dasmig::biodata::eye_color_str(b.eyes) << '\n';
@@ -89,29 +96,30 @@ std::cout << "Blood: " << dasmig::biodata::blood_type_str(b.blood) << '\n';
 std::cout << "Hand:  " << dasmig::biodata::handedness_str(b.hand) << '\n';
 
 // Deterministic generation — same seed always produces the same result.
-auto seeded = bdg::instance().get_biodata("US", std::uint64_t{42});
+auto seeded = bdg::instance().get_biodata({.country = "US"}, std::uint64_t{42});
 
 // Replay a previous generation using its seed.
-auto replay = bdg::instance().get_biodata("US", seeded.seed());
+auto replay = bdg::instance().get_biodata({.country = "US"}, seeded.seed());
 
-// Seed the engine for a deterministic sequence.
-bdg::instance().seed(100);
-// ... generate biodata ...
-bdg::instance().unseed();  // restore non-deterministic state
+// Supply each sequence seed explicitly.
+for (std::uint64_t seed = 100; seed < 103; ++seed)
+    std::cout << bdg::instance().get_biodata({.country = "US"}, seed) << '\n';
 
-// Independent instance — separate data and random engine.
+// Independent instance — separate data.
 bdg my_gen;
 my_gen.load("path/to/resources/lite");
-auto c = my_gen.get_biodata("JP");
+auto c = my_gen.get_biodata({.country = "JP"});
 ```
 
 For the complete feature guide — fields, seeding, enums, and more — see the **[Usage Guide](doc/usage.md)**.
+
+The positional overloads and generator-level `seed()` / `unseed()` have been removed. See [Migrating to the request API](doc/usage.md#migrating-to-the-request-api).
 
 ## Generation Pipeline
 
 Each call to `get_biodata()` runs this pipeline:
 
-1. **Sex** — 50/50 or forced via `sex` parameter.
+1. **Sex** — 50/50 or fixed by `request.bio_sex`.
 2. **Height** — Gaussian distribution using country/sex-specific mean and standard deviation from NCD-RisC anthropometric data.
 3. **BMI** — Log-normal distribution from country/sex-specific mean, modelling the natural right-skew of BMI.
 4. **Weight** — Derived: `BMI × height_m²`.
@@ -159,6 +167,8 @@ make coverage
 # API docs
 make docs
 ```
+
+For targeted generation and known-answer checks after building the tests, run `./build/test_runner "[generation],[age],[seed],[kat]"`. Run `make test` and `make test-embed` for both full suites. On Windows without Make, the [Usage Guide](doc/usage.md#building-on-windows) gives equivalent compiler commands.
 
 ## Compiler Support
 

@@ -116,8 +116,8 @@ class biodata
     std::optional<std::uint8_t> age;        ///< Age in years, when one was requested.
 
     /// @brief Retrieve the random seed used to generate this biodata.
-    /// @return The call seed; pass it to a seeded get_biodata() overload
-    ///         to generate the same biodata again.
+    /// @return The call seed; pass it to get_biodata(request, seed)
+    ///         with the same request and data to replay this biodata.
     [[nodiscard]] std::uint64_t seed() const { return _signature.seed; }
 
     /// @brief The seed and the data this biodata was generated from.
@@ -292,16 +292,20 @@ class biodata
     friend class bdg;
 };
 
-/// @brief What to fix in a generation; anything left unset is drawn.
+/// @brief Per-call generation choices, independent of generator state.
+///
+/// An empty country selects uniformly from the loaded countries, an unset
+/// sex draws 50/50, and an unset age applies no age effects.
+/// The country string must remain valid for the duration of the call.
 ///
 /// ```cpp
 /// auto b = bdg::instance().get_biodata({.country = "BR", .age = 67});
 /// ```
-struct biodata_options
+struct biodata_request
 {
-    std::string_view country{};          ///< ISO 3166-1 alpha-2 code; empty picks a random country.
-    std::optional<sex> bio_sex{};        ///< Biological sex; unset draws 50/50.
-    std::optional<unsigned> age{};        ///< Age in years, 0 to 120; unset applies no age effects.
+    std::string_view country{};    ///< ISO 3166-1 alpha-2 code; empty picks a random country.
+    std::optional<sex> bio_sex{};   ///< Biological sex; unset draws 50/50.
+    std::optional<unsigned> age{}; ///< Age in years, 0 to 120; unset applies no age effects.
 };
 
 /// @brief Biodata generator that produces demographically plausible
@@ -328,8 +332,9 @@ struct biodata_options
 /// independently.
 ///
 /// @par Thread safety
-/// Each instance is independent.  Concurrent calls to get_biodata()
-/// on the **same** instance require external synchronisation.
+/// Generation calls may run concurrently on the same instance while its
+/// data is unchanged. Loading or extending data requires external
+/// synchronisation with all other access.
 class bdg
 {
   public:
@@ -356,147 +361,44 @@ class bdg
 
     // -- Generation -------------------------------------------------------
 
-    /// @brief Generate random biodata for a specific country.
-    /// @param cca2 ISO 3166-1 alpha-2 country code (e.g. "US", "BR").
-    /// @return The biodata.
-    /// @throws std::runtime_error If no data has been loaded.
-    /// @throws std::invalid_argument If the country code is unknown.
-    [[nodiscard]] biodata get_biodata(std::string_view cca2)
-    {
-        return generate_(lookup_entry_(cca2), draw_seed_(), std::nullopt);
-    }
-
-    /// @brief Generate deterministic biodata for a specific country.
-    /// @param cca2 ISO 3166-1 alpha-2 country code.
-    /// @param call_seed Seed; the same seed and data give the same biodata.
-    /// @return The biodata.
-    /// @throws std::runtime_error If no data has been loaded.
-    /// @throws std::invalid_argument If the country code is unknown.
-    [[nodiscard]] biodata get_biodata(std::string_view cca2,
-                                      std::uint64_t call_seed) const
-    {
-        return generate_(lookup_entry_(cca2), call_seed, std::nullopt);
-    }
-
-    /// @brief Generate random biodata from a random country.
-    /// @return The biodata.
-    /// @throws std::runtime_error If no data has been loaded.
-    [[nodiscard]] biodata get_biodata()
-    {
-        return get_biodata(draw_seed_());
-    }
-
-    /// @brief Generate deterministic biodata from a random country.
-    /// @param call_seed Seed.
-    /// @return The biodata.
-    /// @throws std::runtime_error If no data has been loaded.
-    [[nodiscard]] biodata get_biodata(std::uint64_t call_seed) const
-    {
-        return generate_(random_entry_(call_seed), call_seed, std::nullopt);
-    }
-
-    // -- Sex-specific generation ------------------------------------------
-
-    /// @brief Generate random biodata with a predetermined sex.
-    /// @param cca2 ISO 3166-1 alpha-2 country code.
-    /// @param bio_sex The sex.
-    /// @return The biodata.
-    [[nodiscard]] biodata get_biodata(std::string_view cca2, sex bio_sex)
-    {
-        return generate_(lookup_entry_(cca2), draw_seed_(), bio_sex);
-    }
-
-    /// @brief Generate deterministic biodata with a predetermined sex.
-    /// @param cca2 ISO 3166-1 alpha-2 country code.
-    /// @param bio_sex The sex.
-    /// @param call_seed Seed.
-    /// @return The biodata.
-    [[nodiscard]] biodata get_biodata(std::string_view cca2, sex bio_sex,
-                                      std::uint64_t call_seed) const
-    {
-        return generate_(lookup_entry_(cca2), call_seed, bio_sex);
-    }
-
-    /// @brief Generate random biodata from a random country with a
-    ///        predetermined sex.
-    /// @param bio_sex The sex.
-    /// @return The biodata.
-    [[nodiscard]] biodata get_biodata(sex bio_sex)
-    {
-        return get_biodata(bio_sex, draw_seed_());
-    }
-
-    /// @brief Generate deterministic biodata from a random country with
-    ///        a predetermined sex.
-    /// @param bio_sex The sex.
-    /// @param call_seed Seed.
-    /// @return The biodata.
-    [[nodiscard]] biodata get_biodata(sex bio_sex,
-                                      std::uint64_t call_seed) const
-    {
-        return generate_(random_entry_(call_seed), call_seed, bio_sex);
-    }
-
-    // -- Generation with options ------------------------------------------
-
-    /// @brief Generate random biodata with the given fixed values.
+    /// @brief Generate biodata from a request using a fresh entropy seed.
     ///
     /// Giving an age leaves the base draws unchanged and then adjusts them:
     /// children are shorter and lighter (growth curve and child BMI),
     /// adults over 50 lose height, BMI follows a life-course curve, and hair
     /// turns grey with a probability that rises from the mid-30s. Without an
-    /// age the result equals the other overloads' for the same seed.
+    /// age, no age effects are applied.
     ///
-    /// @param options Country, sex and age to fix.
+    /// @param request Country, sex and age choices for this call.
     /// @return The biodata.
     /// @throws std::runtime_error If no data has been loaded.
     /// @throws std::invalid_argument If the country code is unknown or the
     ///         age is above 120.
-    [[nodiscard]] biodata get_biodata(const biodata_options& options)
+    [[nodiscard]] biodata get_biodata(const biodata_request& request) const
     {
-        return get_biodata(options, draw_seed_());
+        return get_biodata(request, core::rng::entropy_seed());
     }
 
     /// @brief Generate deterministic biodata with the given fixed values.
-    /// @param options Country, sex and age to fix.
-    /// @param call_seed Seed.
+    /// @param request Country, sex and age choices for this call.
+    /// @param call_seed Seed; the same request, seed and data give the same biodata.
     /// @return The biodata.
     /// @throws std::runtime_error If no data has been loaded.
     /// @throws std::invalid_argument If the country code is unknown or the
     ///         age is above 120.
-    [[nodiscard]] biodata get_biodata(const biodata_options& options,
+    [[nodiscard]] biodata get_biodata(const biodata_request& request,
                                       std::uint64_t call_seed) const
     {
-        const auto& e = options.country.empty() ? random_entry_(call_seed)
-                                                : lookup_entry_(options.country);
-        if (options.age && *options.age > max_age_)
+        const auto& e = request.country.empty() ? random_entry_(call_seed)
+                                                : lookup_entry_(request.country);
+        if (request.age && *request.age > max_age_)
         {
             throw std::invalid_argument(std::format("Age out of range (0-{}): {}", max_age_,
-                                                    *options.age));
+                                                    *request.age));
         }
         std::optional<std::uint8_t> age;
-        if (options.age) age = static_cast<std::uint8_t>(*options.age);
-        return generate_(e, call_seed, options.bio_sex, age);
-    }
-
-    // -- Seeding ----------------------------------------------------------
-
-    /// @brief Seed the internal random engine for deterministic
-    ///        sequences.
-    /// @param seed_value Seed.
-    /// @return `*this`.
-    bdg& seed(std::uint64_t seed_value)
-    {
-        _engine.seed(seed_value);
-        return *this;
-    }
-
-    /// @brief Reseed the engine with a non-deterministic source.
-    /// @return `*this`.
-    bdg& unseed()
-    {
-        _engine.unseed();
-        return *this;
+        if (request.age) age = static_cast<std::uint8_t>(*request.age);
+        return generate_(e, call_seed, request.bio_sex, age);
     }
 
     // -- Data management --------------------------------------------------
@@ -722,8 +624,6 @@ class bdg
     std::vector<entry> _entries; // in table row order
     std::map<std::string, std::size_t, std::less<>> _index;
 
-    core::rng _engine{core::rng::from_entropy()};
-
     struct auto_probe_tag {};
 
     explicit bdg(auto_probe_tag /*tag*/)
@@ -741,8 +641,6 @@ class bdg
         return {};
 #endif
     }
-
-    std::uint64_t draw_seed_() { return _engine(); }
 
     void rebuild_()
     {

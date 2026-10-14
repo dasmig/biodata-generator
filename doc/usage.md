@@ -8,6 +8,7 @@ This guide covers every feature of the biodata-generator library in detail. For 
 <ul>
 <li><a href="#quick-start">Quick Start</a></li>
 <li><a href="#installation">Installation</a></li>
+<li><a href="#building-on-windows">Building on Windows</a></li>
 <li><a href="#loading-resources">Loading Resources</a></li>
 <li><a href="#generating-biodata">Generating Biodata</a>
   <ul>
@@ -24,6 +25,7 @@ This guide covers every feature of the biodata-generator library in detail. For 
 <li><a href="#extending-data">Extending Data</a></li>
 <li><a href="#replay-and-json">Replay and JSON</a></li>
 <li><a href="#compiled-in-data">Compiled-in Data</a></li>
+<li><a href="#migrating-to-the-request-api">Migrating to the Request API</a></li>
 <li><a href="#migrating-from-v1">Migrating from v1</a></li>
 <li><a href="#thread-safety">Thread Safety</a></li>
 <li><a href="#error-reference">Error Reference</a></li>
@@ -40,16 +42,16 @@ int main()
     auto& gen = dasmig::bdg::instance();
 
     // Random biodata (uniform country selection).
-    auto b = gen.get_biodata();
+    auto b = gen.get_biodata({});
     std::cout << b << "\n";
 
     // Country-specific biodata.
-    auto jp = gen.get_biodata("JP");
+    auto jp = gen.get_biodata({.country = "JP"});
     std::cout << "Japan: " << jp.height_cm << "cm, "
               << jp.weight_kg << "kg\n";
 
     // Sex-specific biodata.
-    auto m = gen.get_biodata("BR", dasmig::sex::male);
+    auto m = gen.get_biodata({.country = "BR", .bio_sex = dasmig::sex::male});
     std::cout << "Male from Brazil: " << m << "\n";
 }
 ```
@@ -59,6 +61,28 @@ int main()
 1. Copy `dasmig/biodatagen.hpp`, `dasmig/core.hpp` and the `dasmig/core/` directory into your include path, keeping them side by side.
 2. Copy the `resources/` folder (containing `full/` and/or `lite/` subdirectories with `biodata.tsv`) so it is accessible at runtime.
 3. Compile with C++23 enabled: `-std=c++23`.
+
+### Building on Windows
+
+With LLVM-MinGW (Clang and libc++) on `PATH`, run these PowerShell commands from the repository root:
+
+```powershell
+New-Item -ItemType Directory -Force build | Out-Null
+clang++ -std=c++23 -O2 -Wall -Wextra -Wpedantic -Wno-c2y-extensions -I. -o build\example.exe examples\example.cpp
+.\build\example.exe
+clang++ -std=c++23 -O2 -Wall -Wextra -Wpedantic -Wno-c2y-extensions -I. -o build\test_runner.exe tests\tests.cpp tests\catch_amalgamated.cpp
+# Targeted generation, age, seed and known-answer checks:
+.\build\test_runner.exe "[generation],[age],[seed],[kat]"
+# Full file-backed suite:
+.\build\test_runner.exe
+# Full compiled-in-data suite:
+clang++ -std=c++23 -O2 -Wall -Wextra -Wpedantic -Wno-c2y-extensions -DDASMIG_BIODATA_EMBED -I. -o build\test_embed.exe tests\tests.cpp tests\catch_amalgamated.cpp
+.\build\test_embed.exe
+# Regenerate the API reference:
+doxygen Doxyfile
+```
+
+In an MSVC developer command prompt, use `/std:c++latest /EHsc /O2 /W4 /permissive- /utf-8 /I.`, `/Fobuild\`, `/Fe:build\test_runner.exe` and `/DDASMIG_BIODATA_EMBED` in place of the corresponding Clang flags (see the CI workflow).
 
 ## Loading Resources
 
@@ -104,61 +128,77 @@ if (gen.has_data())
 
 ## Generating Biodata
 
+There are exactly two public generation calls:
+
+```cpp
+biodata get_biodata(const biodata_request& request) const;
+biodata get_biodata(const biodata_request& request, std::uint64_t seed) const;
+```
+
+All per-call choices are on the request; the generator holds only loaded data. Both calls leave the request and generator unchanged.
+
+| Request field | Type | Default behavior |
+|---------------|------|------------------|
+| `country` | `std::string_view` | Empty selects uniformly from loaded countries |
+| `bio_sex` | `std::optional<dasmig::sex>` | Unset draws male/female 50/50 |
+| `age` | `std::optional<unsigned>` | Unset applies no age effects; accepted ages are 0–120 inclusive |
+
+The country string must remain valid throughout the call. A request can be named and reused, or passed inline with designated initializers.
+
 ### Basic Generation
 
 ```cpp
 auto& gen = dasmig::bdg::instance();
 
 // Random country:
-auto b = gen.get_biodata();
+auto b = gen.get_biodata({});
 
 // Specific country:
-auto us = gen.get_biodata("US");
+auto us = gen.get_biodata({.country = "US"});
 ```
 
 ### Sex-Specific Generation
 
 ```cpp
 // Force biological sex:
-auto m = gen.get_biodata("US", dasmig::sex::male);
-auto f = gen.get_biodata("US", dasmig::sex::female);
+auto m = gen.get_biodata({.country = "US", .bio_sex = dasmig::sex::male});
+auto f = gen.get_biodata({.country = "US", .bio_sex = dasmig::sex::female});
 
 // Random country with forced sex:
-auto rm = gen.get_biodata(dasmig::sex::male);
+auto rm = gen.get_biodata({.bio_sex = dasmig::sex::male});
 ```
 
 ### Deterministic Generation
 
 ```cpp
 // Per-call seed (const method):
-auto b = gen.get_biodata("US", std::uint64_t{42});
+auto b = gen.get_biodata({.country = "US"}, std::uint64_t{42});
 
 // With sex and seed:
-auto m = gen.get_biodata("US", dasmig::sex::male, std::uint64_t{42});
+auto m = gen.get_biodata({.country = "US", .bio_sex = dasmig::sex::male}, std::uint64_t{42});
 
 // Random country with seed:
-auto r = gen.get_biodata(std::uint64_t{42});
+auto r = gen.get_biodata({}, std::uint64_t{42});
 
 // Random country with sex and seed:
-auto rs = gen.get_biodata(dasmig::sex::female, std::uint64_t{42});
+auto rs = gen.get_biodata({.bio_sex = dasmig::sex::female}, std::uint64_t{42});
 ```
 
-### Generation with Options
+### Generation with Age
 
-`biodata_options` fixes any of country, sex and age; whatever is left unset is drawn.
+`biodata_request` fixes country, sex and age independently. An unset age skips age effects rather than drawing an age.
 
 ```cpp
 // A 67-year-old from Brazil, sex drawn:
 auto b = gen.get_biodata({.country = "BR", .age = 67});
 
 // Deterministic (const) form:
-auto d = gen.get_biodata({.country = "BR", .bio_sex = dasmig::sex::female, .age = 8},
-                         std::uint64_t{42});
+auto d = gen.get_biodata({.country = "BR", .bio_sex = dasmig::sex::female, .age = 8}, std::uint64_t{42});
 ```
 
-An empty `country` picks a random one. An age above 120 throws `std::invalid_argument`. Write `dasmig::biodata_options{}` rather than a bare `{}` when passing a seed, since `{}` also converts to `sex`.
+An empty `country` picks a random one. An age above 120 throws `std::invalid_argument`. Both `get_biodata({}, seed)` and `get_biodata(dasmig::biodata_request{}, seed)` select a random country and sex without age effects.
 
-Age is applied after the base draws, so the same seed gives the same underlying person at every age, and with no age the output is identical to the other overloads. The curves are simplified population-level models:
+Age is applied after the base draws, so the same country, sex and seed give the same underlying person at every age. Omitting age preserves the existing adult-model seeded output. The curves are simplified population-level models:
 
 | Trait | Effect of age |
 |-------|---------------|
@@ -194,7 +234,7 @@ Additionally:
 All phenotypic traits use typed enumerations. String conversion helpers are static methods on `biodata`:
 
 ```cpp
-auto b = gen.get_biodata("US");
+auto b = gen.get_biodata({.country = "US"});
 
 std::cout << dasmig::biodata::eye_color_str(b.eyes) << "\n";
 std::cout << dasmig::biodata::hair_color_str(b.hair) << "\n";
@@ -258,51 +298,41 @@ Fitzpatrick scale types I through VI, based on UV sensitivity and melanin conten
 Pass an ISO 3166-1 alpha-2 country code:
 
 ```cpp
-auto us = gen.get_biodata("US");
-auto jp = gen.get_biodata("JP");
-auto ng = gen.get_biodata("NG");
+auto us = gen.get_biodata({.country = "US"});
+auto jp = gen.get_biodata({.country = "JP"});
+auto ng = gen.get_biodata({.country = "NG"});
 ```
 
 Different countries produce different distributions. For example, the Netherlands produces taller individuals on average than Guatemala, and Japan produces predominantly brown-eyed individuals while Scandinavian countries produce more blue-eyed individuals.
 
 ## Seeding and Deterministic Generation
 
-Three levels of determinism:
+`get_biodata(request)` takes a fresh seed from `std::random_device` for each call. For deterministic output, pass the seed explicitly. Replay requires the same request, seed and loaded data.
 
 ### Per-Call Seed
 
 ```cpp
-auto b = gen.get_biodata("US", std::uint64_t{42});
-// Same seed → same result (const method).
+auto b = gen.get_biodata({.country = "US"}, std::uint64_t{42});
+// Same request, seed and data → same result.
 ```
 
 ### Seed Replay
 
 ```cpp
-auto b1 = gen.get_biodata("US");
-auto b2 = gen.get_biodata("US", b1.seed());
+auto b1 = gen.get_biodata({.country = "US"});
+auto b2 = gen.get_biodata({.country = "US"}, b1.seed());
 // b1 and b2 are identical.
 ```
 
-### Engine Seed
+### Deterministic Sequences
 
 ```cpp
-gen.seed(100);
-auto a = gen.get_biodata("US");
-auto b = gen.get_biodata("US");
-
-gen.seed(100);
-auto a2 = gen.get_biodata("US");  // == a
-auto b2 = gen.get_biodata("US");  // == b
-
-gen.unseed();  // restore non-deterministic state
+const dasmig::biodata_request request{.country = "US"};
+for (std::uint64_t seed = 100; seed < 103; ++seed)
+    std::cout << gen.get_biodata(request, seed) << '\n';
 ```
 
-Both `seed()` and `unseed()` return `*this` for chaining:
-
-```cpp
-gen.seed(42).get_biodata("US");
-```
+Repeat the same per-call seeds to replay the sequence. Generator-level seeding is not part of this API; callers can also use their own `dasmig::core::rng` and pass each drawn seed explicitly.
 
 ## Multi-Instance Support
 
@@ -314,15 +344,15 @@ dasmig::bdg gen2;
 gen2.load(dasmig::dataset::full);
 
 // gen1 and gen2 are independent.
-auto a = gen1.get_biodata("US");
-auto b = gen2.get_biodata("US");
+auto a = gen1.get_biodata({.country = "US"});
+auto b = gen2.get_biodata({.country = "US"});
 ```
 
 ## Generation Pipeline
 
 Each call to `get_biodata()` runs this pipeline. Every step draws from its own stream, split from the call seed with a label (`"sex"`, `"height"`, ...), using the [dasmig-core](https://github.com/dasmig/dasmig-core) distributions, so the result is identical on every platform:
 
-1. **Sex** — 50/50 Bernoulli, or forced via parameter.
+1. **Sex** — 50/50 Bernoulli, or fixed by `request.bio_sex`.
 2. **Height** — normal with the country/sex mean and SD, clamped to ±4σ.
 3. **BMI** — log-normal with the country/sex mean and the country SD, clamped to [14, 55].
 4. **Weight** — derived: `BMI × (height_m)²`.
@@ -332,7 +362,7 @@ Each call to `get_biodata()` runs this pipeline. Every step draws from its own s
 8. **Blood Type** — weighted choice over 8 ABO/Rh groups.
 9. **Handedness** — Bernoulli with the country's left-handedness rate.
 
-Because each step has its own stream, forcing the sex changes nothing else: `get_biodata("US", sex::male, seed)` equals `get_biodata("US", seed)` whenever the latter is male. A country chosen at random (`get_biodata(seed)`) is drawn uniformly from the `"country"` stream.
+Because each step has its own stream, forcing the sex changes nothing else: `get_biodata({.country = "US", .bio_sex = sex::male}, seed)` equals `get_biodata({.country = "US"}, seed)` whenever the latter is male. A country chosen at random (`get_biodata({}, seed)`) is drawn uniformly from the `"country"` stream.
 
 ## Data Pipeline
 
@@ -368,12 +398,12 @@ gen.extend("mods/new_countries.tsv", dasmig::core::layer_mode::add);
 Every result records the seed and the data it came from:
 
 ```cpp
-auto b = gen.get_biodata("BR");
+auto b = gen.get_biodata({.country = "BR"});
 b.seed();                    // the call seed
 b.signature().data;          // gen.data_hash() when it was generated
 
-// Same seed, same data: the same biodata on every compiler and platform.
-auto again = gen.get_biodata("BR", b.seed());
+// Same request, seed and data: the same biodata on every compiler and platform.
+auto again = gen.get_biodata({.country = "BR"}, b.seed());
 
 if (b.signature().data != gen.data_hash())
 {
@@ -402,21 +432,37 @@ Define `DASMIG_BIODATA_EMBED` before including the header to compile the `lite` 
 
 `dasmig/biodatagen_data.hpp` is generated from `resources/lite` by `make embed`; CI checks it is up to date.
 
+## Migrating to the Request API
+
+This is a breaking API standardization. Rename `biodata_options` to `biodata_request`; its fields and defaults are unchanged. Replace positional calls with requests:
+
+| Previous call | Request-first call |
+|---------------|--------------------|
+| `get_biodata()` | `get_biodata({})` |
+| `get_biodata("US")` | `get_biodata({.country = "US"})` |
+| `get_biodata(sex::female)` | `get_biodata({.bio_sex = sex::female})` |
+| `get_biodata("US", sex::male, seed)` | `get_biodata({.country = "US", .bio_sex = sex::male}, seed)` |
+| `get_biodata(seed)` | `get_biodata({}, seed)` |
+
+The old overloads, type name and `bdg::seed()` / `bdg::unseed()` are removed, not deprecated aliases. All generation calls are now `const` and use no mutable generator defaults or random engine. To preserve an old seeded sequence, own a `dasmig::core::rng` in the caller and pass its draws as per-call seeds. `biodata::seed()` remains the result replay accessor.
+
+For the same request, per-call seed and data, output and JSON signatures remain unchanged, including age effects. Resource loading, tiers, extensions, layers and data hashes remain instance-level and unchanged.
+
 ## Migrating from v1
 
 Version 2 moves the library onto [dasmig-core](https://github.com/dasmig/dasmig-core).
 
 - **Every generated value changes.** The engine (xoshiro256\*\*) and the distributions are now the core's own, so a seed gives the same result on every compiler, standard library and CPU, which `std::` distributions could not promise. Seeds saved with v1 do not reproduce their v1 results. The distributions themselves are unchanged (checked against v1 over 20,000 draws per scenario).
-- **Forcing the sex no longer shifts the other draws.** Each trait draws from its own stream split from the call seed, so `get_biodata("US", sex::male, s)` equals `get_biodata("US", s)` whenever the latter is male.
+- **Forcing the sex no longer shifts the other draws.** Each trait draws from its own stream split from the call seed, so `get_biodata({.country = "US", .bio_sex = sex::male}, s)` equals `get_biodata({.country = "US"}, s)` whenever the latter is male.
 - **Files:** replace `random.hpp` with `core.hpp` and the `core/` directory (see Installation).
 - **Errors:** a malformed `biodata.tsv` now throws `dasmig::core::tsv_error` instead of skipping rows silently. A missing directory is still ignored by `load(path)`.
 - **New:** `extend()`, `extend_from_string()`, `layers()`, `data_hash()`, `biodata::signature()`, `biodata::to_json()`, `DASMIG_BIODATA_EMBED`.
 
 ## Thread Safety
 
-Each `bdg` instance is independent. Concurrent calls to `get_biodata()` on the **same** instance require external synchronisation (e.g. a `std::mutex`).
+Each `bdg` instance is independent. Both generation calls are `const` and may run concurrently on the **same** instance while its data is unchanged.
 
-The singleton (`bdg::instance()`) returns a shared instance — wrap calls in a mutex if used from multiple threads.
+Loading or extending data requires external synchronisation with generation and other access. This also applies to the shared singleton (`bdg::instance()`).
 
 ## Error Reference
 
@@ -424,4 +470,5 @@ The singleton (`bdg::instance()`) returns a shared instance — wrap calls in a 
 |-----------|------|
 | `std::runtime_error("No biodata loaded. Call load() first.")` | Any generation call before `load()` |
 | `std::invalid_argument("Unknown country code: XX")` | Unknown ISO alpha-2 code |
+| `std::invalid_argument("Age out of range (0-120): N")` | Request age exceeds 120 |
 | `dasmig::core::tsv_error` | A malformed `biodata.tsv` or layer (message gives file, line and column); the data is unchanged |
