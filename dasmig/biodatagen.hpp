@@ -60,7 +60,8 @@ enum class hair_color : std::uint8_t
     black, ///< Black.
     brown, ///< Brown.
     blond, ///< Blond.
-    red    ///< Red.
+    red,   ///< Red.
+    grey   ///< Grey or white; only generated when an age is given.
 };
 
 /// @brief Fitzpatrick skin phototype (I–VI).
@@ -112,6 +113,7 @@ class biodata
     skin_type skin{skin_type::III};         ///< Fitzpatrick skin type.
     blood_type blood{blood_type::O_pos};    ///< Blood type (ABO/Rh).
     handedness hand{handedness::right};     ///< Handedness.
+    std::optional<std::uint8_t> age;        ///< Age in years, when one was requested.
 
     /// @brief Retrieve the random seed used to generate this biodata.
     /// @return The call seed; pass it to a seeded get_biodata() overload
@@ -130,15 +132,17 @@ class biodata
     /// @return Summary line.
     [[nodiscard]] std::string to_string() const
     {
-        return std::format("{} {} {:.1f}cm {:.1f}kg BMI={:.1f} "
-                           "eyes={} hair={} skin={} blood={} {}",
-                           country_code, sex_str(bio_sex),
-                           height_cm, weight_kg, bmi,
-                           eye_color_str(eyes),
-                           hair_color_str(hair),
-                           skin_type_str(skin),
-                           blood_type_str(blood),
-                           handedness_str(hand));
+        auto s = std::format("{} {} {:.1f}cm {:.1f}kg BMI={:.1f} "
+                             "eyes={} hair={} skin={} blood={} {}",
+                             country_code, sex_str(bio_sex),
+                             height_cm, weight_kg, bmi,
+                             eye_color_str(eyes),
+                             hair_color_str(hair),
+                             skin_type_str(skin),
+                             blood_type_str(blood),
+                             handedness_str(hand));
+        if (age) s += std::format(" age={}", static_cast<int>(*age));
+        return s;
     }
 
     /// @brief Write this biodata as a JSON object.
@@ -155,8 +159,9 @@ class biodata
             .field("hair", hair_color_str(hair))
             .field("skin", skin_type_str(skin))
             .field("blood", blood_type_str(blood))
-            .field("hand", handedness_str(hand))
-            .key("signature");
+            .field("hand", handedness_str(hand));
+        if (age) w.field("age", static_cast<int>(*age));
+        w.key("signature");
         _signature.to_json(w);
         w.end_object();
     }
@@ -215,6 +220,7 @@ class biodata
         case hair_color::brown: return "brown";
         case hair_color::blond: return "blond";
         case hair_color::red:   return "red";
+        case hair_color::grey:  return "grey";
         }
         return "unknown";
     }
@@ -284,6 +290,18 @@ class biodata
   private:
     core::seed_signature _signature;
     friend class bdg;
+};
+
+/// @brief What to fix in a generation; anything left unset is drawn.
+///
+/// ```cpp
+/// auto b = bdg::instance().get_biodata({.country = "BR", .age = 67});
+/// ```
+struct biodata_options
+{
+    std::string_view country{};          ///< ISO 3166-1 alpha-2 code; empty picks a random country.
+    std::optional<sex> bio_sex{};        ///< Biological sex; unset draws 50/50.
+    std::optional<unsigned> age{};        ///< Age in years, 0 to 120; unset applies no age effects.
 };
 
 /// @brief Biodata generator that produces demographically plausible
@@ -417,6 +435,48 @@ class bdg
                                       std::uint64_t call_seed) const
     {
         return generate_(random_entry_(call_seed), call_seed, bio_sex);
+    }
+
+    // -- Generation with options ------------------------------------------
+
+    /// @brief Generate random biodata with the given fixed values.
+    ///
+    /// Giving an age leaves the base draws unchanged and then adjusts them:
+    /// children are shorter and lighter (growth curve and child BMI),
+    /// adults over 50 lose height, BMI follows a life-course curve, and hair
+    /// turns grey with a probability that rises from the mid-30s. Without an
+    /// age the result equals the other overloads' for the same seed.
+    ///
+    /// @param options Country, sex and age to fix.
+    /// @return The biodata.
+    /// @throws std::runtime_error If no data has been loaded.
+    /// @throws std::invalid_argument If the country code is unknown or the
+    ///         age is above 120.
+    [[nodiscard]] biodata get_biodata(const biodata_options& options)
+    {
+        return get_biodata(options, draw_seed_());
+    }
+
+    /// @brief Generate deterministic biodata with the given fixed values.
+    /// @param options Country, sex and age to fix.
+    /// @param call_seed Seed.
+    /// @return The biodata.
+    /// @throws std::runtime_error If no data has been loaded.
+    /// @throws std::invalid_argument If the country code is unknown or the
+    ///         age is above 120.
+    [[nodiscard]] biodata get_biodata(const biodata_options& options,
+                                      std::uint64_t call_seed) const
+    {
+        const auto& e = options.country.empty() ? random_entry_(call_seed)
+                                                : lookup_entry_(options.country);
+        if (options.age && *options.age > max_age_)
+        {
+            throw std::invalid_argument(std::format("Age out of range (0-{}): {}", max_age_,
+                                                    *options.age));
+        }
+        std::optional<std::uint8_t> age;
+        if (options.age) age = static_cast<std::uint8_t>(*options.age);
+        return generate_(e, call_seed, options.bio_sex, age);
     }
 
     // -- Seeding ----------------------------------------------------------
@@ -725,8 +785,64 @@ class bdg
         return _entries[static_cast<std::size_t>(core::bounded(r, _entries.size()))];
     }
 
+    // -- Age effects (simplified population-level curves) ------------------
+
+    static constexpr unsigned max_age_ = 120;
+
+    // Fraction of adult height reached at each age 0..18 (about 50 cm at
+    // birth, girls finishing growing two to three years before boys).
+    static constexpr std::array<double, 19> male_growth_{
+        0.29, 0.42, 0.50, 0.56, 0.61, 0.65, 0.69, 0.72, 0.75, 0.78,
+        0.81, 0.84, 0.87, 0.90, 0.94, 0.97, 0.985, 0.995, 1.0};
+    static constexpr std::array<double, 19> female_growth_{
+        0.30, 0.43, 0.51, 0.57, 0.62, 0.66, 0.70, 0.73, 0.77, 0.80,
+        0.84, 0.88, 0.93, 0.96, 0.98, 0.995, 1.0, 1.0, 1.0};
+
+    // Factor on the adult mean BMI: child BMI dips around age 5 and rebounds,
+    // adults rise through mid-life and decline in old age.
+    struct knot
+    {
+        double age;
+        double factor;
+    };
+    static constexpr std::array<knot, 10> bmi_curve_{{{0, 0.68},  {2, 0.64},  {5, 0.58},  {8, 0.62},
+                                                      {12, 0.72}, {18, 0.92}, {30, 0.98}, {50, 1.03},
+                                                      {70, 1.02}, {100, 0.90}}};
+
+    static double height_factor_(unsigned age, bool male)
+    {
+        if (age < 18) return (male ? male_growth_ : female_growth_)[age];
+        if (age <= 50) return 1.0;
+        // About 0.7% of height lost per decade after 50.
+        return 1.0 - core::math::fenced(0.0007 * static_cast<double>(age - 50));
+    }
+
+    static double bmi_factor_(unsigned age)
+    {
+        const double a = static_cast<double>(age);
+        for (std::size_t i = 1; i < bmi_curve_.size(); ++i)
+        {
+            if (a <= bmi_curve_[i].age)
+            {
+                const auto& lo = bmi_curve_[i - 1];
+                const auto& hi = bmi_curve_[i];
+                const double t = (a - lo.age) / (hi.age - lo.age);
+                return lo.factor + core::math::fenced((hi.factor - lo.factor) * t);
+            }
+        }
+        return bmi_curve_.back().factor;
+    }
+
+    // Chance that hair has turned grey: none before 25, 50% at 55.
+    static double grey_probability_(unsigned age)
+    {
+        if (age < 25) return 0.0;
+        return 1.0 / (1.0 + core::math::exp(-(static_cast<double>(age) - 55.0) / 9.0));
+    }
+
     [[nodiscard]] biodata generate_(const entry& e, std::uint64_t call_seed,
-                                    std::optional<sex> forced_sex) const
+                                    std::optional<sex> forced_sex,
+                                    std::optional<std::uint8_t> age = std::nullopt) const
     {
         const core::rng call{call_seed};
         biodata b;
@@ -752,6 +868,7 @@ class bdg
             const double sd = male ? e.male_height_sd : e.female_height_sd;
             const double spread = core::math::fenced(4.0 * sd);
             b.height_cm = std::clamp(core::normal(r, mean, sd), mean - spread, mean + spread);
+            if (age) b.height_cm *= height_factor_(*age, male);
         }
 
         // 3. BMI: log-normal with the given mean and SD (right-skewed).
@@ -761,7 +878,9 @@ class bdg
             const double ratio = (e.bmi_sd * e.bmi_sd) / (mean * mean);
             const double ln_sigma2 = core::math::log(1.0 + ratio);
             const double ln_mu = core::math::log(mean) - core::math::fenced(0.5 * ln_sigma2);
-            b.bmi = std::clamp(core::lognormal(r, ln_mu, std::sqrt(ln_sigma2)), 14.0, 55.0);
+            b.bmi = core::lognormal(r, ln_mu, std::sqrt(ln_sigma2));
+            if (age) b.bmi *= bmi_factor_(*age);
+            b.bmi = std::clamp(b.bmi, 14.0, 55.0);
         }
 
         // 4. Weight = BMI × (height in m)².
@@ -777,6 +896,11 @@ class bdg
             auto r = call.split("hair");
             b.hair = static_cast<hair_color>(e.hair(r));
         }
+        if (age)
+        {
+            auto r = call.split("grey");
+            if (core::bernoulli(r, grey_probability_(*age))) b.hair = hair_color::grey;
+        }
         {
             auto r = call.split("skin");
             b.skin = static_cast<skin_type>(e.skin(r) + 1); // enum starts at 1
@@ -791,6 +915,7 @@ class bdg
             auto r = call.split("hand");
             b.hand = core::bernoulli(r, e.left_handed) ? handedness::left : handedness::right;
         }
+        b.age = age;
         return b;
     }
 };
