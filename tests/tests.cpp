@@ -942,3 +942,77 @@ TEST_CASE("age shapes height, BMI and hair", "[age]")
     REQUIRE(grey_old > 3 * grey_young);
     REQUIRE(gen.get_biodata({.country = "US", .age = 10}, 1).hair != dasmig::hair_color::grey);
 }
+
+// ---------------------------------------------------------------------------
+// Batch generation
+// ---------------------------------------------------------------------------
+
+TEST_CASE("biodata batch: items equal the single calls for any thread count", "[batch]")
+{
+    dasmig::bdg gen;
+    gen.load(std::filesystem::path{"resources/lite"});
+    if (!gen.has_data()) gen.load(std::filesystem::path{"../resources/lite"});
+    REQUIRE(gen.has_data());
+    const auto request = dasmig::biodata_request{};
+    const auto batch = gen.get_biodata_batch(request, {.count = 200, .threads = 1}, 77);
+    REQUIRE(batch.size() == 200);
+    for (std::uint64_t i = 0; i < batch.size(); ++i)
+    {
+        REQUIRE(batch[i].to_json() == gen.get_biodata(request, dasmig::core::item_seed(77, i)).to_json());
+    }
+
+    // A range is computed directly, on any number of threads.
+    const auto tail = gen.get_biodata_batch(request, {.count = 100, .first = 100, .threads = 4}, 77);
+    REQUIRE(tail.size() == 100);
+    for (std::size_t i = 0; i < tail.size(); ++i)
+    {
+        REQUIRE(tail[i].to_json() == batch[100 + i].to_json());
+    }
+    for (const std::size_t threads : {2U, 7U, 0U})
+    {
+        const auto other = gen.get_biodata_batch(request, {.count = 200, .threads = threads}, 77);
+        REQUIRE(other.size() == batch.size());
+        for (std::size_t i = 0; i < other.size(); ++i)
+        {
+            REQUIRE(other[i].to_json() == batch[i].to_json());
+        }
+    }
+
+    // Without a seed the batch still has the requested size.
+    REQUIRE(gen.get_biodata_batch(request, {.count = 5}).size() == 5);
+}
+
+TEST_CASE("biodata batch: streaming gives the same items in order", "[batch]")
+{
+    dasmig::bdg gen;
+    gen.load(std::filesystem::path{"resources/lite"});
+    if (!gen.has_data()) gen.load(std::filesystem::path{"../resources/lite"});
+    REQUIRE(gen.has_data());
+    const auto request = dasmig::biodata_request{};
+    const auto batch = gen.get_biodata_batch(request, {.count = 300, .first = 10, .threads = 3}, 5);
+    std::uint64_t next = 10;
+    std::size_t seen = 0;
+    gen.for_each_biodata(request, {.count = 300, .first = 10, .threads = 3}, 5,
+                        [&](std::uint64_t index, const dasmig::biodata& item)
+                        {
+                            REQUIRE(index == next);
+                            REQUIRE(item.to_json() == batch[seen].to_json());
+                            ++next;
+                            ++seen;
+                        });
+    REQUIRE(seen == batch.size());
+}
+
+TEST_CASE("biodata batch: known answer of 10,000 items", "[batch][kat]")
+{
+    dasmig::bdg gen;
+    gen.load(std::filesystem::path{"resources/lite"});
+    if (!gen.has_data()) gen.load(std::filesystem::path{"../resources/lite"});
+    REQUIRE(gen.has_data());
+    const auto request = dasmig::biodata_request{};
+    std::uint64_t hash = 0xcbf29ce484222325ULL;
+    gen.for_each_biodata(request, {.count = 10000, .threads = 4}, 1,
+                        [&](std::uint64_t, const dasmig::biodata& item)
+                        { hash = dasmig::core::hash_combine(hash, dasmig::core::fnv1a64(item.to_json())); });
+    REQUIRE(hash == 0xbd96895d09e49ba5ULL);
+}

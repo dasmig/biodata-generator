@@ -19,6 +19,8 @@
 
 - **Demographically Plausible Characteristics**. Generates random human physical traits using a multi-stage pipeline: height from country/sex-specific Gaussian distributions, BMI from log-normal distributions, and categorical sampling for phenotypic traits.
 
+- **Batch Generation**. Generate thousands of results from one seed, on several threads with the same output for any thread count, optionally unique by a key, and stream them as JSON Lines or CSV (see the usage guide).
+
 - **Seven Physical Traits**. Every generated profile includes: height (cm), weight (kg), BMI, eye colour, hair colour, Fitzpatrick skin type, ABO/Rh blood type, and handedness.
 
 - **Country-Specific Distributions**. Height means, BMI values, eye/hair/skin distributions, blood type frequencies, and left-handedness rates all vary by country, reflecting real-world population statistics.
