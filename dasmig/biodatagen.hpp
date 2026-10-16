@@ -34,7 +34,7 @@
 /// @author Diego Dasso Migotto (diegomigotto at hotmail dot com)
 /// @see See doc/usage.md for the narrative tutorial.
 
-DASMIG_CORE_REQUIRE(1, 0);
+DASMIG_CORE_REQUIRE(1, 1);
 
 namespace dasmig
 {
@@ -403,6 +403,82 @@ class bdg
         if (request.age) age = static_cast<std::uint8_t>(*request.age);
         return generate_(e, call_seed, request.bio_sex, age);
     }
+
+    // -- Batch generation -------------------------------------------------
+
+    /// @brief Generate a batch of biodata results from a seed drawn like
+    ///        get_biodata() draws its own.
+    ///
+    /// Item `i` is `get_biodata(request, core::item_seed(batch_seed, options.first + i))`
+    /// for the drawn batch seed; see the seeded overload.
+    ///
+    /// @param request What every item is generated from.
+    /// @param options Count, first index, threads and uniqueness.
+    /// @return The results, in index order.
+    [[nodiscard]] std::vector<biodata> get_biodata_batch(const biodata_request& request,
+                                                  const core::batch_options& options) const
+    {
+        return get_biodata_batch(request, options, core::rng::entropy_seed());
+    }
+
+    /// @brief Generate a batch of biodata results, deterministically.
+    ///
+    /// Item `i` is exactly `get_biodata(request, core::item_seed(batch_seed,
+    /// options.first + i))`, so an item replays on its own, a range can be
+    /// generated directly, two batches that follow each other equal one, and
+    /// the output does not depend on `options.threads`.
+    ///
+    /// @param request What every item is generated from.
+    /// @param options Count, first index, threads and uniqueness (see
+    ///        core::unique_rule; the rule must be made for `biodata`).
+    /// @param batch_seed Seed of the whole batch.
+    /// @return The results, in index order.
+    /// @throws std::invalid_argument If the request or options are invalid.
+    /// @throws std::runtime_error If no data has been loaded, or a unique
+    ///         batch runs out of attempts.
+    [[nodiscard]] std::vector<biodata> get_biodata_batch(const biodata_request& request,
+                                                  const core::batch_options& options,
+                                                  std::uint64_t batch_seed) const
+    {
+        return core::run_batch(options, batch_seed, [&](std::uint64_t item_seed)
+                               { return get_biodata(request, item_seed); });
+    }
+
+    /// @brief Stream a batch of biodata results to a sink without holding the
+    ///        whole batch.
+    ///
+    /// Generates the same items as get_biodata_batch() and calls
+    /// `sink(index, item)` in index order on the calling thread; `index`
+    /// includes `options.first`.
+    ///
+    /// @tparam Sink Callable taking `(std::uint64_t, biodata&)`; for example
+    ///         core::jsonl_writer or core::csv_writer.
+    /// @param request What every item is generated from.
+    /// @param options Count, first index, threads and uniqueness.
+    /// @param batch_seed Seed of the whole batch.
+    /// @param sink Receives the items.
+    template <typename Sink>
+    void for_each_biodata(const biodata_request& request, const core::batch_options& options,
+                        std::uint64_t batch_seed, Sink&& sink) const
+    {
+        core::for_each_batch(options, batch_seed,
+                             [&](std::uint64_t item_seed) { return get_biodata(request, item_seed); },
+                             std::forward<Sink>(sink));
+    }
+
+    /// @brief Stream a batch of biodata results with a batch seed drawn like
+    ///        get_biodata() draws its own.
+    /// @tparam Sink Callable taking `(std::uint64_t, biodata&)`.
+    /// @param request What every item is generated from.
+    /// @param options Count, first index, threads and uniqueness.
+    /// @param sink Receives the items.
+    template <typename Sink>
+    void for_each_biodata(const biodata_request& request, const core::batch_options& options,
+                        Sink&& sink) const
+    {
+        for_each_biodata(request, options, core::rng::entropy_seed(), std::forward<Sink>(sink));
+    }
+
 
     // -- Data management --------------------------------------------------
 
