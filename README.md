@@ -161,6 +161,9 @@ make test
 # Tests with the lite tier compiled in (DASMIG_BIODATA_EMBED), also run by CI
 make test-embed
 
+# Benchmarks (results in build/bench.tsv)
+make bench
+
 # Code coverage
 make coverage
 
