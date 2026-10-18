@@ -34,20 +34,10 @@
 /// @author Diego Dasso Migotto (diegomigotto at hotmail dot com)
 /// @see See doc/usage.md for the narrative tutorial.
 
-DASMIG_CORE_REQUIRE(1, 1);
+DASMIG_CORE_REQUIRE(1, 2);
 
 namespace dasmig
 {
-
-#ifndef DASMIG_SEX_DEFINED
-#define DASMIG_SEX_DEFINED
-/// @brief Biological sex.
-enum class sex : std::uint8_t
-{
-    male,  ///< Male.
-    female ///< Female.
-};
-#endif
 
 /// @brief Eye colour (three-category model from Katsara & Nothnagel 2019).
 enum class eye_color : std::uint8_t
@@ -282,12 +272,7 @@ class biodata
     /// @return Label.
     [[nodiscard]] static std::string_view sex_str(sex s)
     {
-        switch (s)
-        {
-        case sex::male:   return "male";
-        case sex::female: return "female";
-        }
-        return "unknown";
+        return core::sex_name(s);
     }
 
   private:
@@ -749,7 +734,7 @@ class bdg
         const auto it = _index.find(cca2);
         if (it == _index.end())
         {
-            throw std::invalid_argument(std::format("Unknown country code: {}", cca2));
+            throw core::unknown_country_error(cca2);
         }
         return _entries[it->second];
     }
