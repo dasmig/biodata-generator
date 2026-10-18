@@ -813,6 +813,84 @@ class bdg
                                                 const std::vector<double>& hair,
                                                 const std::vector<double>& skin)
     {
+        constexpr std::size_t cell_count = skin_count_ * hair_count_ * eye_count_;
+        static const std::array<double, cell_count> fit_table = pigment_fit_();
+
+        const auto normalised = [](const std::vector<double>& w)
+        {
+            const double total = std::accumulate(w.begin(), w.end(), 0.0);
+            std::vector<double> shares;
+            shares.reserve(w.size());
+            for (const double v : w) shares.push_back(v / total);
+            return shares;
+        };
+        const auto eye_share = normalised(eyes);
+        const auto hair_share = normalised(hair);
+        const auto skin_share = normalised(skin);
+
+        // Fitting keeps the table's odds ratios, so starting from the table
+        // times the independent shares reaches the same answer in fewer sweeps.
+        auto cells = fit_table;
+        for (std::size_t i = 0; i < cell_count; ++i)
+        {
+            const double pair = core::math::fenced(skin_share[i / (hair_count_ * eye_count_)] *
+                                                   hair_share[i / eye_count_ % hair_count_]);
+            cells[i] = core::math::fenced(cells[i] * core::math::fenced(pair * eye_share[i % eye_count_]));
+        }
+        constexpr int max_sweeps = 200;
+        constexpr double tolerance = 1e-4;
+        for (int sweep = 0; sweep < max_sweeps; ++sweep)
+        {
+            std::array<double, skin_count_> skin_sum{};
+            for (std::size_t s = 0; s < skin_count_; ++s)
+            {
+                for (std::size_t i = s * hair_count_ * eye_count_; i < (s + 1) * hair_count_ * eye_count_; ++i)
+                    skin_sum[s] += cells[i];
+            }
+            for (std::size_t s = 0; s < skin_count_; ++s)
+            {
+                if (!(skin_sum[s] > 0.0)) continue;
+                const double scale = skin_share[s] / skin_sum[s];
+                for (std::size_t i = s * hair_count_ * eye_count_; i < (s + 1) * hair_count_ * eye_count_; ++i)
+                    cells[i] = core::math::fenced(cells[i] * scale);
+            }
+
+            std::array<double, hair_count_> hair_sum{};
+            for (std::size_t i = 0; i < cell_count; ++i) hair_sum[i / eye_count_ % hair_count_] += cells[i];
+            for (std::size_t i = 0; i < cell_count; ++i)
+            {
+                const auto h = i / eye_count_ % hair_count_;
+                if (hair_sum[h] > 0.0) cells[i] = core::math::fenced(cells[i] * (hair_share[h] / hair_sum[h]));
+            }
+
+            std::array<double, eye_count_> eye_sum{};
+            for (std::size_t i = 0; i < cell_count; ++i) eye_sum[i % eye_count_] += cells[i];
+            for (std::size_t i = 0; i < cell_count; ++i)
+            {
+                const auto y = i % eye_count_;
+                if (eye_sum[y] > 0.0) cells[i] = core::math::fenced(cells[i] * (eye_share[y] / eye_sum[y]));
+            }
+
+            // Eyes now match exactly; stop once skin and hair are within tolerance too.
+            double worst = 0.0;
+            std::array<double, skin_count_> skin_now{};
+            std::array<double, hair_count_> hair_now{};
+            for (std::size_t i = 0; i < cell_count; ++i)
+            {
+                skin_now[i / (hair_count_ * eye_count_)] += cells[i];
+                hair_now[i / eye_count_ % hair_count_] += cells[i];
+            }
+            for (std::size_t s = 0; s < skin_count_; ++s) worst = std::max(worst, std::abs(skin_now[s] - skin_share[s]));
+            for (std::size_t h = 0; h < hair_count_; ++h) worst = std::max(worst, std::abs(hair_now[h] - hair_share[h]));
+            if (worst < tolerance) break;
+        }
+        return {cells.begin(), cells.end()};
+    }
+
+    // How well each skin, hair and eye combination fits, before a country's
+    // shares are applied. The same for every country, so it is built once.
+    static std::array<double, skin_count_ * hair_count_ * eye_count_> pigment_fit_()
+    {
         constexpr std::array<double, eye_count_> eye_dark{0.0, 0.5, 1.0};
         constexpr std::array<double, hair_count_> hair_dark{1.0, 0.6, 0.15, 0.1};
         constexpr std::array<double, skin_count_> skin_dark{0.0, 0.2, 0.4, 0.6, 0.8, 1.0};
@@ -821,10 +899,9 @@ class bdg
         constexpr double skin_eye = 2.0;
         constexpr double red_fair_skin = 1.5; // red hair's extra pull to the fairest skin
         constexpr std::size_t red = 3;
-        constexpr int sweeps = 80;
         const auto square = [](double d) { return core::math::fenced(d * d); };
 
-        std::vector<double> cells(skin_count_ * hair_count_ * eye_count_);
+        std::array<double, skin_count_ * hair_count_ * eye_count_> cells{};
         for (std::size_t s = 0; s < skin_count_; ++s)
         {
             for (std::size_t h = 0; h < hair_count_; ++h)
@@ -838,31 +915,6 @@ class bdg
                     cells[(s * hair_count_ + h) * eye_count_ + y] = core::math::exp(-penalty);
                 }
             }
-        }
-
-        const auto total = [](const std::vector<double>& w)
-        { return std::accumulate(w.begin(), w.end(), 0.0); };
-        const double eye_total = total(eyes);
-        const double hair_total = total(hair);
-        const double skin_total = total(skin);
-
-        // Scale every cell of one trait's value by target / current total.
-        const auto fit = [&](std::size_t count, const std::vector<double>& target, double target_total,
-                             const auto& value_of)
-        {
-            std::vector<double> sums(count, 0.0);
-            for (std::size_t i = 0; i < cells.size(); ++i) sums[value_of(i)] += cells[i];
-            for (std::size_t i = 0; i < cells.size(); ++i)
-            {
-                const auto v = value_of(i);
-                if (sums[v] > 0.0) cells[i] = core::math::fenced(cells[i] * ((target[v] / target_total) / sums[v]));
-            }
-        };
-        for (int sweep = 0; sweep < sweeps; ++sweep)
-        {
-            fit(skin_count_, skin, skin_total, [](std::size_t i) { return i / (hair_count_ * eye_count_); });
-            fit(hair_count_, hair, hair_total, [](std::size_t i) { return i / eye_count_ % hair_count_; });
-            fit(eye_count_, eyes, eye_total, [](std::size_t i) { return i % eye_count_; });
         }
         return cells;
     }
