@@ -25,6 +25,7 @@ This guide covers every feature of the biodata-generator library in detail. For 
 <li><a href="#extending-data">Extending Data</a></li>
 <li><a href="#replay-and-json">Replay and JSON</a></li>
 <li><a href="#compiled-in-data">Compiled-in Data</a></li>
+<li><a href="#migrating-to-v5">Migrating to v5</a></li>
 <li><a href="#migrating-to-the-request-api">Migrating to the Request API</a></li>
 <li><a href="#migrating-from-v1">Migrating from v1</a></li>
 <li><a href="#thread-safety">Thread Safety</a></li>
@@ -356,11 +357,10 @@ Each call to `get_biodata()` runs this pipeline. Every step draws from its own s
 2. **Height** — normal with the country/sex mean and SD, clamped to ±4σ.
 3. **BMI** — log-normal with the country/sex mean and the country SD, clamped to [14, 55].
 4. **Weight** — derived: `BMI × (height_m)²`.
-5. **Eye Colour** — weighted choice over 3 categories.
-6. **Hair Colour** — weighted choice over 4 categories.
-7. **Skin Type** — weighted choice over 6 Fitzpatrick types.
-8. **Blood Type** — weighted choice over 8 ABO/Rh groups.
-9. **Handedness** — Bernoulli with the country's left-handedness rate.
+5. **Skin, Hair and Eyes** — one draw (stream `"pigment"`) from the country's joint distribution of 6 Fitzpatrick types, 4 hair colours and 3 eye colours, which has the country's percentage for each trait but pairs them as people do (light hair with light eyes and fair skin). See [Data and Method](data.md).
+6. **Grey Hair** — with an age set, hair is replaced by grey with a probability that rises with age (stream `"grey"`).
+7. **Blood Type** — weighted choice over 8 ABO/Rh groups.
+8. **Handedness** — Bernoulli with the country's left-handedness rate.
 
 Because each step has its own stream, forcing the sex changes nothing else: `get_biodata({.country = "US", .bio_sex = sex::male}, seed)` equals `get_biodata({.country = "US"}, seed)` whenever the latter is male. A country chosen at random (`get_biodata({}, seed)`) is drawn uniformly from the `"country"` stream.
 
@@ -431,6 +431,10 @@ Define `DASMIG_BIODATA_EMBED` before including the header to compile the `lite` 
 ```
 
 `dasmig/biodatagen_data.hpp` is generated from `resources/lite` by `make embed`; CI checks it is up to date.
+
+## Migrating to v5
+
+Version 5 draws skin, hair and eyes together, so the same seed gives a different skin, hair and eye colour than in v4. Heights, weights, BMIs, blood types and handedness are unchanged, and so are the country shares of every trait and the data hash. Code needs no changes; update any known answers that include those three fields.
 
 ## Migrating to the Request API
 

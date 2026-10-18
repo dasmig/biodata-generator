@@ -385,6 +385,111 @@ TEST_CASE("eye colour distribution is plausible", "[generation][eye]")
 }
 
 // ---------------------------------------------------------------------------
+// Skin, hair and eyes go together
+// ---------------------------------------------------------------------------
+
+namespace
+{
+struct pigment_counts
+{
+    int n{0};
+    int eyes[3]{};
+    int hair[5]{};
+    int skin[7]{};
+    int blond{0}, blond_blue{0}, blond_brown{0};
+    int black{0}, black_blue{0};
+    int fair{0}, fair_light_hair{0};
+    int dark{0}, dark_light_hair{0};
+};
+
+pigment_counts count_pigment(const dasmig::bdg& gen, const char* country, int n)
+{
+    pigment_counts c;
+    for (int i = 0; i < n; ++i)
+    {
+        const auto b = gen.get_biodata({.country = country}, static_cast<std::uint64_t>(i));
+        ++c.n;
+        ++c.eyes[static_cast<int>(b.eyes)];
+        ++c.hair[static_cast<int>(b.hair)];
+        ++c.skin[static_cast<int>(b.skin)];
+        if (b.hair == dasmig::hair_color::blond)
+        {
+            ++c.blond;
+            if (b.eyes == dasmig::eye_color::blue) ++c.blond_blue;
+            if (b.eyes == dasmig::eye_color::brown) ++c.blond_brown;
+        }
+        if (b.hair == dasmig::hair_color::black)
+        {
+            ++c.black;
+            if (b.eyes == dasmig::eye_color::blue) ++c.black_blue;
+        }
+        const bool light_hair = b.hair == dasmig::hair_color::blond || b.hair == dasmig::hair_color::red;
+        if (b.skin == dasmig::skin_type::I || b.skin == dasmig::skin_type::II)
+        {
+            ++c.fair;
+            if (light_hair) ++c.fair_light_hair;
+        }
+        if (b.skin == dasmig::skin_type::V || b.skin == dasmig::skin_type::VI)
+        {
+            ++c.dark;
+            if (light_hair) ++c.dark_light_hair;
+        }
+    }
+    return c;
+}
+} // namespace
+
+TEST_CASE("pigmentation keeps the country's shares for each trait", "[generation][pigment]")
+{
+    auto gen = make_loaded_generator();
+    constexpr int n = 100000;
+    const auto c = count_pigment(gen, "SE", n);
+    // Sweden's rows in resources/lite: eyes 70/14/16, hair 3/35/58/4, skin 18/40/28/10/3/1.
+    const auto pct = [&](int k) { return 100.0 * k / n; };
+    REQUIRE(pct(c.eyes[static_cast<int>(dasmig::eye_color::blue)]) == Catch::Approx(70.0).margin(1.0));
+    REQUIRE(pct(c.eyes[static_cast<int>(dasmig::eye_color::brown)]) == Catch::Approx(16.0).margin(1.0));
+    REQUIRE(pct(c.hair[static_cast<int>(dasmig::hair_color::blond)]) == Catch::Approx(58.0).margin(1.0));
+    REQUIRE(pct(c.hair[static_cast<int>(dasmig::hair_color::black)]) == Catch::Approx(3.0).margin(0.7));
+    REQUIRE(pct(c.skin[static_cast<int>(dasmig::skin_type::III)]) == Catch::Approx(28.0).margin(1.0));
+}
+
+TEST_CASE("pigmentation: light hair goes with light eyes, dark with dark", "[generation][pigment]")
+{
+    auto gen = make_loaded_generator();
+    const auto c = count_pigment(gen, "US", 200000);
+    REQUIRE(c.blond > 0);
+    REQUIRE(c.black > 0);
+    const double blue_given_blond = static_cast<double>(c.blond_blue) / c.blond;
+    const double blue_given_black = static_cast<double>(c.black_blue) / c.black;
+    const double brown_given_blond = static_cast<double>(c.blond_brown) / c.blond;
+    // Independent draws would give blue the same chance (27%) under either hair.
+    REQUIRE(blue_given_blond > 2.0 * blue_given_black);
+    REQUIRE(blue_given_blond > 0.5);
+    REQUIRE(brown_given_blond < 0.25); // independent draws: 55%
+    REQUIRE(brown_given_blond > 0.0);  // but combinations are rare, not forbidden
+}
+
+TEST_CASE("pigmentation: light hair goes with fair skin", "[generation][pigment]")
+{
+    auto gen = make_loaded_generator();
+    const auto c = count_pigment(gen, "US", 200000);
+    REQUIRE(c.fair > 0);
+    REQUIRE(c.dark > 0);
+    const double light_given_fair = static_cast<double>(c.fair_light_hair) / c.fair;
+    const double light_given_dark = static_cast<double>(c.dark_light_hair) / c.dark;
+    REQUIRE(light_given_fair > 2.0 * light_given_dark);
+}
+
+TEST_CASE("pigmentation: a trait a country lacks stays absent", "[generation][pigment]")
+{
+    auto gen = make_loaded_generator();
+    const auto c = count_pigment(gen, "JP", 20000);
+    REQUIRE(c.hair[static_cast<int>(dasmig::hair_color::blond)] == 0);
+    REQUIRE(c.hair[static_cast<int>(dasmig::hair_color::red)] == 0);
+    REQUIRE(c.eyes[static_cast<int>(dasmig::eye_color::blue)] == 0);
+}
+
+// ---------------------------------------------------------------------------
 // Hair colour distribution
 // ---------------------------------------------------------------------------
 
@@ -710,15 +815,15 @@ TEST_CASE("known answers for fixed seeds", "[kat]")
 
     REQUIRE(gen.get_biodata({.country = "US"}, std::uint64_t{1}).to_json() ==
             R"({"country_code":"US","sex":"male","height_cm":173.5172709253195,"weight_kg":91.22083570504105,)"
-            R"("bmi":30.297628050803606,"eyes":"blue","hair":"blond","skin":"III","blood":"O+","hand":"right",)"
+            R"("bmi":30.297628050803606,"eyes":"brown","hair":"brown","skin":"VI","blood":"O+","hand":"right",)"
             R"("signature":{"seed":"0000000000000001","data":"076d859c658fef72"}})");
     REQUIRE(gen.get_biodata({.country = "JP", .bio_sex = dasmig::sex::female}, std::uint64_t{2}).to_json() ==
             R"({"country_code":"JP","sex":"female","height_cm":158.17896069415235,"weight_kg":44.525357578480246,)"
-            R"("bmi":17.79549121600056,"eyes":"brown","hair":"black","skin":"III","blood":"A+","hand":"right",)"
+            R"("bmi":17.79549121600056,"eyes":"brown","hair":"black","skin":"V","blood":"A+","hand":"right",)"
             R"("signature":{"seed":"0000000000000002","data":"076d859c658fef72"}})");
     REQUIRE(gen.get_biodata({}, std::uint64_t{3}).to_json() ==
             R"({"country_code":"JM","sex":"male","height_cm":176.8561684380176,"weight_kg":100.39633798702847,)"
-            R"("bmi":32.09796123745295,"eyes":"intermediate","hair":"black","skin":"IV","blood":"O+","hand":"right",)"
+            R"("bmi":32.09796123745295,"eyes":"brown","hair":"black","skin":"III","blood":"O+","hand":"right",)"
             R"("signature":{"seed":"0000000000000003","data":"076d859c658fef72"}})");
     REQUIRE(gen.get_biodata({.bio_sex = dasmig::sex::male}, std::uint64_t{4}).to_json() ==
             R"({"country_code":"MT","sex":"male","height_cm":164.46793267482911,"weight_kg":63.551146441403866,)"
@@ -734,7 +839,7 @@ TEST_CASE("known answers for fixed seeds", "[kat]")
             h *= 0x100000001b3ULL;
         }
     }
-    REQUIRE(h == 0xe2d74ff523c730f7ULL);
+    REQUIRE(h == 0x717594d5dd1db56eULL);
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,5 +1119,5 @@ TEST_CASE("biodata batch: known answer of 10,000 items", "[batch][kat]")
     gen.for_each_biodata(request, {.count = 10000, .threads = 4}, 1,
                         [&](std::uint64_t, const dasmig::biodata& item)
                         { hash = dasmig::core::hash_combine(hash, dasmig::core::fnv1a64(item.to_json())); });
-    REQUIRE(hash == 0x51561b92d13db49fULL);
+    REQUIRE(hash == 0x2d7eb6de4f798aacULL);
 }

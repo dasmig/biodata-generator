@@ -21,6 +21,8 @@ Demographically plausible physical characteristics (height, weight, eye and hair
 
 - **Seven Physical Traits**. Every generated profile includes: height (cm), weight (kg), BMI, eye colour, hair colour, Fitzpatrick skin type, ABO/Rh blood type, and handedness.
 
+- **Traits That Go Together**. Skin, hair and eyes are drawn jointly: each keeps the country's shares, and fair skin pairs with light hair and eyes, dark with dark, so a blond person from the US has blue eyes far more often than a black-haired one.
+
 - **Country-Specific Distributions**. Height means, BMI values, eye/hair/skin distributions, blood type frequencies, and left-handedness rates all vary by country, reflecting real-world population statistics.
 
 - **Data-Driven**. Height and BMI from [NCD-RisC](https://ncdrisc.org/) via [Our World in Data](https://ourworldindata.org/), blood types from published population studies, phenotypic traits from Katsara & Nothnagel 2019, VISAGE consortium, and Papadatou-Pastou 2020.
