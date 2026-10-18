@@ -7,6 +7,7 @@
 #include "core.hpp"
 #include <algorithm>
 #include <array>
+#include <numeric>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -623,9 +624,7 @@ class bdg
         double female_bmi_mean{0.0};
         double bmi_sd{0.0};
         double left_handed{0.0}; // probability, from the percentage
-        core::discrete eyes{1.0};
-        core::discrete hair{1.0};
-        core::discrete skin{1.0};
+        core::discrete pigment{1.0}; // skin, hair and eyes together; see pigment_weights_()
         core::discrete blood{1.0};
 
         // Parse and check a row; throws core::tsv_error located at the row.
@@ -647,10 +646,11 @@ class bdg
                 throw row.error("left_handed_pct", "must be between 0 and 100");
             }
             e.left_handed = pct / 100.0;
-            e.eyes = weights(row, eye_columns_);
-            e.hair = weights(row, hair_columns_);
-            e.skin = weights(row, skin_columns_);
-            e.blood = weights(row, blood_columns_);
+            const auto eyes = weights(row, eye_columns_);
+            const auto hair = weights(row, hair_columns_);
+            const auto skin = weights(row, skin_columns_);
+            e.pigment = core::discrete{pigment_weights_(eyes, hair, skin)};
+            e.blood = core::discrete{weights(row, blood_columns_)};
             return e;
         }
 
@@ -662,8 +662,8 @@ class bdg
             return v;
         }
 
-        static core::discrete weights(const core::tsv_row& row,
-                                      std::span<const std::string_view> columns)
+        static std::vector<double> weights(const core::tsv_row& row,
+                                           std::span<const std::string_view> columns)
         {
             std::vector<double> w;
             w.reserve(columns.size());
@@ -673,14 +673,11 @@ class bdg
                 if (v < 0.0) throw row.error(column, "weight must not be negative");
                 w.push_back(v);
             }
-            try
-            {
-                return core::discrete{w};
-            }
-            catch (const std::invalid_argument&)
+            if (!(std::accumulate(w.begin(), w.end(), 0.0) > 0.0))
             {
                 throw row.error(columns.front(), "the weights in this group are all zero");
             }
+            return w;
         }
     };
 
@@ -795,6 +792,81 @@ class bdg
         return bmi_curve_.back().factor;
     }
 
+    static constexpr std::size_t eye_count_ = 3;
+    static constexpr std::size_t hair_count_ = 4;
+    static constexpr std::size_t skin_count_ = 6;
+
+    // The joint distribution of skin, hair and eyes for one country.
+    //
+    // The country tables give each trait on its own. Real people are not
+    // independent draws of them: fair skin goes with light hair and light
+    // eyes, dark skin with dark hair and dark eyes, and red hair with the
+    // fairest skin. This starts from a table of how well each combination
+    // fits (the pairs' darkness, below) and rescales it, by iterative
+    // proportional fitting, until its skin, hair and eye totals are the
+    // country's. So each trait keeps the country's shares and only the
+    // pairing changes. The strengths are authored to give the associations
+    // the pigmentation literature reports (for example Katsara & Nothnagel
+    // 2019 for eye and hair colour); they are not fitted to a joint survey.
+    // Cell index is (skin * hair_count + hair) * eye_count + eye.
+    static std::vector<double> pigment_weights_(const std::vector<double>& eyes,
+                                                const std::vector<double>& hair,
+                                                const std::vector<double>& skin)
+    {
+        constexpr std::array<double, eye_count_> eye_dark{0.0, 0.5, 1.0};
+        constexpr std::array<double, hair_count_> hair_dark{1.0, 0.6, 0.15, 0.1};
+        constexpr std::array<double, skin_count_> skin_dark{0.0, 0.2, 0.4, 0.6, 0.8, 1.0};
+        constexpr double eye_hair = 3.0;  // strength of each pair; larger pairs up more tightly
+        constexpr double skin_hair = 2.0;
+        constexpr double skin_eye = 2.0;
+        constexpr double red_fair_skin = 1.5; // red hair's extra pull to the fairest skin
+        constexpr std::size_t red = 3;
+        constexpr int sweeps = 80;
+        const auto square = [](double d) { return core::math::fenced(d * d); };
+
+        std::vector<double> cells(skin_count_ * hair_count_ * eye_count_);
+        for (std::size_t s = 0; s < skin_count_; ++s)
+        {
+            for (std::size_t h = 0; h < hair_count_; ++h)
+            {
+                for (std::size_t y = 0; y < eye_count_; ++y)
+                {
+                    double penalty = core::math::fenced(eye_hair * square(hair_dark[h] - eye_dark[y]));
+                    penalty += core::math::fenced(skin_hair * square(skin_dark[s] - hair_dark[h]));
+                    penalty += core::math::fenced(skin_eye * square(skin_dark[s] - eye_dark[y]));
+                    if (h == red) penalty -= core::math::fenced(red_fair_skin * (1.0 - skin_dark[s]));
+                    cells[(s * hair_count_ + h) * eye_count_ + y] = core::math::exp(-penalty);
+                }
+            }
+        }
+
+        const auto total = [](const std::vector<double>& w)
+        { return std::accumulate(w.begin(), w.end(), 0.0); };
+        const double eye_total = total(eyes);
+        const double hair_total = total(hair);
+        const double skin_total = total(skin);
+
+        // Scale every cell of one trait's value by target / current total.
+        const auto fit = [&](std::size_t count, const std::vector<double>& target, double target_total,
+                             const auto& value_of)
+        {
+            std::vector<double> sums(count, 0.0);
+            for (std::size_t i = 0; i < cells.size(); ++i) sums[value_of(i)] += cells[i];
+            for (std::size_t i = 0; i < cells.size(); ++i)
+            {
+                const auto v = value_of(i);
+                if (sums[v] > 0.0) cells[i] = core::math::fenced(cells[i] * ((target[v] / target_total) / sums[v]));
+            }
+        };
+        for (int sweep = 0; sweep < sweeps; ++sweep)
+        {
+            fit(skin_count_, skin, skin_total, [](std::size_t i) { return i / (hair_count_ * eye_count_); });
+            fit(hair_count_, hair, hair_total, [](std::size_t i) { return i / eye_count_ % hair_count_; });
+            fit(eye_count_, eyes, eye_total, [](std::size_t i) { return i % eye_count_; });
+        }
+        return cells;
+    }
+
     // Chance that hair has turned grey: none before 25, 50% at 55.
     static double grey_probability_(unsigned age)
     {
@@ -851,21 +923,18 @@ class bdg
 
         // 5-8. Categorical traits.
         {
-            auto r = call.split("eyes");
-            b.eyes = static_cast<eye_color>(e.eyes(r));
-        }
-        {
-            auto r = call.split("hair");
-            b.hair = static_cast<hair_color>(e.hair(r));
+            // Skin, hair and eyes come from one draw of the country's joint
+            // distribution, so they go together as they do in people.
+            auto r = call.split("pigment");
+            const auto cell = e.pigment(r);
+            b.skin = static_cast<skin_type>(cell / (hair_count_ * eye_count_) + 1); // enum starts at 1
+            b.hair = static_cast<hair_color>(cell / eye_count_ % hair_count_);
+            b.eyes = static_cast<eye_color>(cell % eye_count_);
         }
         if (age)
         {
             auto r = call.split("grey");
             if (core::bernoulli(r, grey_probability_(*age))) b.hair = hair_color::grey;
-        }
-        {
-            auto r = call.split("skin");
-            b.skin = static_cast<skin_type>(e.skin(r) + 1); // enum starts at 1
         }
         {
             auto r = call.split("blood");

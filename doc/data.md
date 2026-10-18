@@ -33,7 +33,8 @@ Regional defaults come from `REGION_DEFAULTS` and `COUNTRY_REGION` in `scripts/p
 
 - **Height** is normal with the country and sex mean and SD, clamped to ±4 SD. Height is close to normal within a population because many genetic and environmental factors add up.
 - **BMI** is log-normal, because population BMI is right-skewed: the upper tail has lengthened over the decades while the lower bound has not moved. **Weight** is BMI × height².
-- **Eye colour, hair colour, skin type, blood type and handedness** are drawn independently from the country's percentages.
+- **Skin, hair and eyes** are drawn together from one joint distribution (below), so they go together. **Blood type and handedness** are drawn independently from the country's percentages.
+- **The joint distribution** starts from a table of how well each skin, hair and eye combination fits: the pairs' darkness is compared (fair skin with light hair and light eyes, dark with dark), and red hair is pulled towards the fairest skin. The table is then rescaled by iterative proportional fitting until its skin, hair and eye totals equal the country's percentages. Each trait therefore keeps the country's shares exactly; only how they pair up changes. In the shipped US data, 71% of blond people have blue eyes and 11% brown, where independent draws would give 27% and 55%; a trait a country has none of (blond hair in Japan) stays absent. The strengths of the associations are authored to match what the pigmentation literature reports (for example Katsara & Nothnagel 2019 for eye and hair colour), not fitted to a joint survey, so treat the pairings as plausible rather than measured.
 - **Handedness** follows the expressed rate, which varies a lot between countries (for example much lower in East Asia, where left-handed children were often made to switch), rather than the roughly 10% biological rate.
 
 The [usage guide](usage.md) ("Generation Pipeline") gives the exact steps.
@@ -56,8 +57,8 @@ After changing the data, run `make embed` to regenerate the compiled-in copy, an
 
 These are what the model leaves out, with the sources a future version could use.
 
-- **Height does not depend on age.** National mean heights rose by up to about 15 cm over the 20th century, so an 80-year-old and a 20-year-old from the same country should not share one distribution. NCD-RisC publishes height by birth cohort. This is the "age parameter" planned for `biodata-generator`.
-- **Pigmentation traits are independent.** Eye, hair and skin colour share genetics (melanin), and Katsara & Nothnagel report a clear association between eye and hair colour, so independent draws produce unlikely combinations (blond hair with dark brown eyes, for example). A better model draws skin first, then hair given skin, then eyes given both.
+- **Height by age uses a curve, not cohort data.** An age shrinks height and shifts BMI along fixed curves. NCD-RisC publishes height by birth cohort, which would replace the curve with measured values.
+- **The pigmentation pairings are authored, not measured.** Skin, hair and eyes are drawn together (see the generation model), but the strength of each association is a judgement matched to the literature, because no public survey gives their joint distribution by country. A joint survey would replace the authored strengths.
 - **Skin is categorical.** Fitzpatrick types are coarse, and self-reported types often do not follow ethnicity. A continuous measure such as the Individual Typology Angle (from CIE L\*a\*b\* skin colour) would give smooth skin tones.
 - **Handedness is expressed only.** An option for the biological rate (about 10% everywhere) would suit some uses.
 - **No other body dimensions.** The US Army ANSUR II survey (public, 93 measurements) could derive proportions from height and weight; that belongs in `appearance-generator`.
