@@ -709,19 +709,19 @@ TEST_CASE("known answers for fixed seeds", "[kat]")
     REQUIRE(gen.data_hash() == 0x076d859c658fef72ULL);
 
     REQUIRE(gen.get_biodata({.country = "US"}, std::uint64_t{1}).to_json() ==
-            R"({"country":"US","sex":"male","height_cm":173.5172709253195,"weight_kg":91.22083570504105,)"
+            R"({"country_code":"US","sex":"male","height_cm":173.5172709253195,"weight_kg":91.22083570504105,)"
             R"("bmi":30.297628050803606,"eyes":"blue","hair":"blond","skin":"III","blood":"O+","hand":"right",)"
             R"("signature":{"seed":"0000000000000001","data":"076d859c658fef72"}})");
     REQUIRE(gen.get_biodata({.country = "JP", .bio_sex = dasmig::sex::female}, std::uint64_t{2}).to_json() ==
-            R"({"country":"JP","sex":"female","height_cm":158.17896069415235,"weight_kg":44.525357578480246,)"
+            R"({"country_code":"JP","sex":"female","height_cm":158.17896069415235,"weight_kg":44.525357578480246,)"
             R"("bmi":17.79549121600056,"eyes":"brown","hair":"black","skin":"III","blood":"A+","hand":"right",)"
             R"("signature":{"seed":"0000000000000002","data":"076d859c658fef72"}})");
     REQUIRE(gen.get_biodata({}, std::uint64_t{3}).to_json() ==
-            R"({"country":"JM","sex":"male","height_cm":176.8561684380176,"weight_kg":100.39633798702847,)"
+            R"({"country_code":"JM","sex":"male","height_cm":176.8561684380176,"weight_kg":100.39633798702847,)"
             R"("bmi":32.09796123745295,"eyes":"intermediate","hair":"black","skin":"IV","blood":"O+","hand":"right",)"
             R"("signature":{"seed":"0000000000000003","data":"076d859c658fef72"}})");
     REQUIRE(gen.get_biodata({.bio_sex = dasmig::sex::male}, std::uint64_t{4}).to_json() ==
-            R"({"country":"MT","sex":"male","height_cm":164.46793267482911,"weight_kg":63.551146441403866,)"
+            R"({"country_code":"MT","sex":"male","height_cm":164.46793267482911,"weight_kg":63.551146441403866,)"
             R"("bmi":23.49421412356942,"eyes":"brown","hair":"brown","skin":"IV","blood":"O+","hand":"left",)"
             R"("signature":{"seed":"0000000000000004","data":"076d859c658fef72"}})");
 
@@ -734,7 +734,7 @@ TEST_CASE("known answers for fixed seeds", "[kat]")
             h *= 0x100000001b3ULL;
         }
     }
-    REQUIRE(h == 0x7b8667dd6cf9dbdfULL);
+    REQUIRE(h == 0xe2d74ff523c730f7ULL);
 }
 
 // ---------------------------------------------------------------------------
@@ -749,7 +749,7 @@ TEST_CASE("to_json and signature", "[json]")
     REQUIRE(b.seed() == 99);
     REQUIRE(b.signature().data == gen.data_hash());
     const auto json = b.to_json();
-    REQUIRE(json.starts_with(R"({"country":"BR","sex":)"));
+    REQUIRE(json.starts_with(R"({"country_code":"BR","sex":)"));
     REQUIRE(json.find(R"("signature":{"seed":"0000000000000063")") != std::string::npos);
 
     dasmig::core::json_writer w;
@@ -1014,5 +1014,5 @@ TEST_CASE("biodata batch: known answer of 10,000 items", "[batch][kat]")
     gen.for_each_biodata(request, {.count = 10000, .threads = 4}, 1,
                         [&](std::uint64_t, const dasmig::biodata& item)
                         { hash = dasmig::core::hash_combine(hash, dasmig::core::fnv1a64(item.to_json())); });
-    REQUIRE(hash == 0xbd96895d09e49ba5ULL);
+    REQUIRE(hash == 0x51561b92d13db49fULL);
 }

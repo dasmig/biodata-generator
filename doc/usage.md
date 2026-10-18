@@ -414,7 +414,7 @@ if (b.signature().data != gen.data_hash())
 `to_json()` gives the result as JSON, the form the WebAssembly layer and the game consume:
 
 ```json
-{"country":"US","sex":"male","height_cm":173.5172709253195,"weight_kg":91.22083570504105,
+{"country_code":"US","sex":"male","height_cm":173.5172709253195,"weight_kg":91.22083570504105,
  "bmi":30.297628050803606,"eyes":"blue","hair":"blond","skin":"III","blood":"O+","hand":"right",
  "signature":{"seed":"0000000000000001","data":"076d859c658fef72"}}
 ```
