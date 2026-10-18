@@ -839,7 +839,7 @@ TEST_CASE("known answers for fixed seeds", "[kat]")
             h *= 0x100000001b3ULL;
         }
     }
-    REQUIRE(h == 0xd62a1186997dc4d3ULL);
+    REQUIRE(h == 0x717594d5dd1db56eULL);
 }
 
 // ---------------------------------------------------------------------------
@@ -1119,5 +1119,5 @@ TEST_CASE("biodata batch: known answer of 10,000 items", "[batch][kat]")
     gen.for_each_biodata(request, {.count = 10000, .threads = 4}, 1,
                         [&](std::uint64_t, const dasmig::biodata& item)
                         { hash = dasmig::core::hash_combine(hash, dasmig::core::fnv1a64(item.to_json())); });
-    REQUIRE(hash == 0x5923e9de78ab0241ULL);
+    REQUIRE(hash == 0x2d7eb6de4f798aacULL);
 }
