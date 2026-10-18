@@ -153,7 +153,7 @@ class biodata
     void to_json(core::json_writer& w) const
     {
         w.begin_object()
-            .field("country", country_code)
+            .field("country_code", country_code)
             .field("sex", sex_str(bio_sex))
             .field("height_cm", height_cm)
             .field("weight_kg", weight_kg)
@@ -171,7 +171,7 @@ class biodata
 
     /// @brief This biodata as a JSON document.
     /// @return Compact JSON, for example
-    ///   `{"country":"US","sex":"male","height_cm":176.2,...,"signature":{...}}`.
+    ///   `{"country_code":"US","sex":"male","height_cm":176.2,...,"signature":{...}}`.
     [[nodiscard]] std::string to_json() const
     {
         core::json_writer w;
