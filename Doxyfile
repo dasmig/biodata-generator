@@ -2,7 +2,7 @@
 # Run: doxygen Doxyfile
 
 PROJECT_NAME           = "Biodata Generator"
-PROJECT_NUMBER         = 5.0.1
+PROJECT_NUMBER         = 5.0.2
 PROJECT_BRIEF          = "Procedural human physical characteristics generation for C++23"
 PROJECT_LOGO           = doc/biodata-generator.png
 
