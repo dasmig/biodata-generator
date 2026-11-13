@@ -185,6 +185,7 @@ Tested with:
 | [address-generator](https://github.com/dasmig/address-generator) | Postal addresses with real streets by place |
 | [birth-generator](https://github.com/dasmig/birth-generator) | Demographically plausible birthdays |
 | [city-generator](https://github.com/dasmig/city-generator) | Weighted city selection by population |
+| [company-generator](https://github.com/dasmig/company-generator) | Companies by country: industry, size, legal form, name, registration numbers and domain |
 | [country-generator](https://github.com/dasmig/country-generator) | Weighted country selection by population |
 | [device-generator](https://github.com/dasmig/device-generator) | Devices, browsers, user agents and IP addresses that fit together |
 | [email-generator](https://github.com/dasmig/email-generator) | Email addresses in each country's style |
